@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace DougKusanagi\LaravelLanShare\Console\Commands;
 
+use DougKusanagi\LaravelLanShare\PowerShell\PowerShellCommandRenderer;
 use DougKusanagi\LaravelLanShare\PowerShell\PowerShellScriptRenderer;
 use DougKusanagi\LaravelLanShare\Support\ScriptFileWriter;
 use Illuminate\Console\Attributes\Description;
@@ -11,12 +12,13 @@ use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Throwable;
 
-#[Signature('lan:share:cleanup {--script= : Save the PowerShell cleanup script to this path} {--no-script : Do not print the cleanup script}')]
+#[Signature('lan:share:cleanup {--script= : Save the PowerShell cleanup script to this path} {--no-script : Do not print the PowerShell command} {--raw-script : Also print the complete PowerShell script}')]
 #[Description('Gera o script PowerShell para remover o compartilhamento LAN')]
 final class LanShareCleanupCommand extends Command
 {
     public function __construct(
         private readonly PowerShellScriptRenderer $scriptRenderer,
+        private readonly PowerShellCommandRenderer $commandRenderer,
         private readonly ScriptFileWriter $scriptFileWriter,
     ) {
         parent::__construct();
@@ -31,8 +33,10 @@ final class LanShareCleanupCommand extends Command
             $script = $this->scriptRenderer->renderCleanup(
                 (string) config('lan-share.firewall_rule_prefix', 'DougKusanagi-LaravelLanShare'),
             );
+            $powerShellCommand = $this->commandRenderer->render($script, 'DougKusanagi-LaravelLanShare-Cleanup.ps1');
 
-            $path = trim((string) $this->option('script'));
+            $pathOption = $this->option('script');
+            $path = is_string($pathOption) ? trim($pathOption) : '';
 
             if ($path !== '') {
                 $this->scriptFileWriter->write($path, $script);
@@ -40,9 +44,21 @@ final class LanShareCleanupCommand extends Command
             }
 
             if (! $this->option('no-script')) {
-                $this->line('Abra o PowerShell como Administrador, cole e execute:');
+                $this->line('Cole esta linha única no PowerShell como Administrador:');
                 $this->newLine();
-                $this->output->write($script);
+                $this->line($powerShellCommand);
+
+                if ($this->option('raw-script')) {
+                    $this->newLine();
+                    $this->line('----- INÍCIO DO SCRIPT POWERSHELL -----');
+                    $this->output->write($script);
+
+                    if (! str_ends_with($script, PHP_EOL)) {
+                        $this->newLine();
+                    }
+
+                    $this->line('----- FIM DO SCRIPT POWERSHELL -----');
+                }
             }
         } catch (Throwable $exception) {
             $this->components->error($exception->getMessage());

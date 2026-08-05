@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace DougKusanagi\LaravelLanShare\Console\Commands;
 
+use DougKusanagi\LaravelLanShare\PowerShell\PowerShellCommandRenderer;
 use DougKusanagi\LaravelLanShare\PowerShell\PowerShellScriptRenderer;
 use DougKusanagi\LaravelLanShare\Support\LanHostResolver;
 use DougKusanagi\LaravelLanShare\Support\LanSharePlan;
@@ -19,7 +20,7 @@ use Illuminate\Support\Facades\Process;
 use InvalidArgumentException;
 use Throwable;
 
-#[Signature('lan:share {--host= : Hostname or IP address used by other devices on the network} {--laravel-port= : Preferred Laravel port} {--vite-port= : Preferred Vite port} {--distro= : WSL distribution name} {--script= : Save the PowerShell setup script to this path} {--prepare-only : Generate the setup script without starting the development servers} {--no-script : Do not print the setup script} {--json : Print the plan as JSON and exit} {--qr : Print a terminal QR code when a host is available}')]
+#[Signature('lan:share {--host= : Hostname or IP address used by other devices on the network} {--laravel-port= : Preferred Laravel port} {--vite-port= : Preferred Vite port} {--distro= : WSL distribution name} {--script= : Save the PowerShell setup script to this path} {--prepare-only : Generate the setup script without starting the development servers} {--no-script : Do not print the PowerShell command} {--raw-script : Also print the complete PowerShell script} {--json : Print the plan as JSON and exit} {--qr : Print a terminal QR code when a host is available}')]
 #[Description('Prepara e inicia o compartilhamento do ambiente Laravel/Vite na rede local')]
 final class LanShareCommand extends Command
 {
@@ -27,6 +28,7 @@ final class LanShareCommand extends Command
         private readonly LanHostResolver $hostResolver,
         private readonly PortAllocator $portAllocator,
         private readonly PowerShellScriptRenderer $scriptRenderer,
+        private readonly PowerShellCommandRenderer $commandRenderer,
         private readonly QrCodeRenderer $qrCodeRenderer,
         private readonly ScriptFileWriter $scriptFileWriter,
     ) {
@@ -41,6 +43,7 @@ final class LanShareCommand extends Command
         try {
             $plan = $this->buildPlan();
             $script = $this->scriptRenderer->renderShare($plan);
+            $powerShellCommand = $this->commandRenderer->render($script, 'DougKusanagi-LaravelLanShare.ps1');
         } catch (Throwable $exception) {
             $this->components->error($exception->getMessage());
 
@@ -48,11 +51,11 @@ final class LanShareCommand extends Command
         }
 
         if ($this->option('json')) {
-            return $this->outputJson($plan, $script);
+            return $this->outputJson($plan, $script, $powerShellCommand);
         }
 
         try {
-            $this->displayPlan($plan, $script);
+            $this->displayPlan($plan, $script, $powerShellCommand);
             $this->saveScriptIfRequested($script);
         } catch (Throwable $exception) {
             $this->components->error($exception->getMessage());
@@ -109,7 +112,7 @@ final class LanShareCommand extends Command
 
     private function resolveHost(): ?string
     {
-        $optionHost = trim((string) $this->option('host'));
+        $optionHost = $this->stringOption('host');
 
         if ($optionHost !== '') {
             return trim($optionHost, '[]');
@@ -139,7 +142,7 @@ final class LanShareCommand extends Command
 
     private function resolveDistro(): ?string
     {
-        $optionDistro = trim((string) $this->option('distro'));
+        $optionDistro = $this->stringOption('distro');
 
         if ($optionDistro !== '') {
             return $optionDistro;
@@ -159,7 +162,7 @@ final class LanShareCommand extends Command
             || str_ends_with($normalizedHost, '.test');
     }
 
-    private function displayPlan(LanSharePlan $plan, string $script): void
+    private function displayPlan(LanSharePlan $plan, string $script, string $powerShellCommand): void
     {
         $this->components->info('Plano de compartilhamento LAN');
         $this->line("Laravel no WSL: http://0.0.0.0:{$plan->laravelPort}");
@@ -177,14 +180,20 @@ final class LanShareCommand extends Command
 
         if (! $this->option('no-script')) {
             $this->newLine();
-            $this->line('----- INÍCIO DO SCRIPT POWERSHELL -----');
-            $this->output->write($script);
+            $this->line('Cole esta linha única no PowerShell como Administrador:');
+            $this->line($powerShellCommand);
 
-            if (! str_ends_with($script, PHP_EOL)) {
+            if ($this->option('raw-script')) {
                 $this->newLine();
-            }
+                $this->line('----- INÍCIO DO SCRIPT POWERSHELL -----');
+                $this->output->write($script);
 
-            $this->line('----- FIM DO SCRIPT POWERSHELL -----');
+                if (! str_ends_with($script, PHP_EOL)) {
+                    $this->newLine();
+                }
+
+                $this->line('----- FIM DO SCRIPT POWERSHELL -----');
+            }
         }
 
         $this->newLine();
@@ -216,7 +225,7 @@ final class LanShareCommand extends Command
 
     private function saveScriptIfRequested(string $script): void
     {
-        $path = trim((string) $this->option('script'));
+        $path = $this->stringOption('script');
 
         if ($path === '') {
             return;
@@ -226,11 +235,19 @@ final class LanShareCommand extends Command
         $this->components->info("Script salvo em {$path}");
     }
 
-    private function outputJson(LanSharePlan $plan, string $script): int
+    private function stringOption(string $name): string
+    {
+        $value = $this->option($name);
+
+        return is_string($value) ? trim($value) : '';
+    }
+
+    private function outputJson(LanSharePlan $plan, string $script, string $powerShellCommand): int
     {
         $cleanupScript = $this->scriptRenderer->renderCleanup($plan->firewallRulePrefix);
         $payload = $plan->toArray() + [
             'powershell_script' => $script,
+            'powershell_command' => $powerShellCommand,
             'cleanup_script' => $cleanupScript,
             'serve_command' => $this->developmentCommand($plan),
         ];
