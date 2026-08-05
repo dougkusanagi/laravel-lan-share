@@ -1,0 +1,51 @@
+{
+    "$schema": "https://getcomposer.org/schema.json",
+    "name": "dougkusanagi/laravel-lan-share",
+    "description": "Share Laravel development environments running in WSL over the local network.",
+    "keywords": [
+        "laravel",
+        "wsl",
+        "windows",
+        "lan",
+        "vite",
+        "portproxy"
+    ],
+    "license": "MIT",
+    "type": "library",
+    "require": {
+        "php": "^8.3",
+        "bacon/bacon-qr-code": "^3.0",
+        "illuminate/console": "^13.0",
+        "illuminate/process": "^13.0",
+        "illuminate/support": "^13.0"
+    },
+    "require-dev": {
+        "larastan/larastan": "^3.0",
+        "orchestra/testbench": "^11.0",
+        "pestphp/pest": "^5.0",
+        "pestphp/pest-plugin-laravel": "^5.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "DougKusanagi\\LaravelLanShare\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "DougKusanagi\\LaravelLanShare\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "DougKusanagi\\LaravelLanShare\\LanShareServiceProvider"
+            ]
+        }
+    },
+    "scripts": {
+        "test": "vendor/bin/pest",
+        "analyse": "vendor/bin/phpstan analyse"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
