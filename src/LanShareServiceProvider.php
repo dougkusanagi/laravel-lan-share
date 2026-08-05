@@ -7,10 +7,12 @@ namespace DougKusanagi\LaravelLanShare;
 use DougKusanagi\LaravelLanShare\Console\Commands\LanShareCleanupCommand;
 use DougKusanagi\LaravelLanShare\Console\Commands\LanShareCommand;
 use DougKusanagi\LaravelLanShare\PowerShell\PowerShellScriptRenderer;
+use DougKusanagi\LaravelLanShare\Support\ClipboardWriter;
 use DougKusanagi\LaravelLanShare\Support\LanHostResolver;
 use DougKusanagi\LaravelLanShare\Support\PortAllocator;
 use DougKusanagi\LaravelLanShare\Support\QrCodeRenderer;
 use DougKusanagi\LaravelLanShare\Support\ScriptFileWriter;
+use DougKusanagi\LaravelLanShare\Support\WindowsClipboardWriter;
 use Illuminate\Support\ServiceProvider;
 
 final class LanShareServiceProvider extends ServiceProvider
@@ -24,6 +26,7 @@ final class LanShareServiceProvider extends ServiceProvider
         $this->app->singleton(PowerShellScriptRenderer::class);
         $this->app->singleton(QrCodeRenderer::class);
         $this->app->singleton(ScriptFileWriter::class);
+        $this->app->singleton(ClipboardWriter::class, WindowsClipboardWriter::class);
     }
 
     public function boot(): void

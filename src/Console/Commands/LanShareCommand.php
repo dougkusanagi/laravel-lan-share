@@ -6,6 +6,7 @@ namespace DougKusanagi\LaravelLanShare\Console\Commands;
 
 use DougKusanagi\LaravelLanShare\PowerShell\PowerShellCommandRenderer;
 use DougKusanagi\LaravelLanShare\PowerShell\PowerShellScriptRenderer;
+use DougKusanagi\LaravelLanShare\Support\ClipboardWriter;
 use DougKusanagi\LaravelLanShare\Support\LanHostResolver;
 use DougKusanagi\LaravelLanShare\Support\LanSharePlan;
 use DougKusanagi\LaravelLanShare\Support\PortAllocator;
@@ -20,7 +21,7 @@ use Illuminate\Support\Facades\Process;
 use InvalidArgumentException;
 use Throwable;
 
-#[Signature('lan:share {--host= : Hostname or IP address used by other devices on the network} {--laravel-port= : Preferred Laravel port} {--vite-port= : Preferred Vite port} {--distro= : WSL distribution name} {--script= : Save the PowerShell setup script to this path} {--prepare-only : Generate the setup script without starting the development servers} {--no-script : Do not print the PowerShell command} {--raw-script : Also print the complete PowerShell script} {--json : Print the plan as JSON and exit} {--qr : Print a terminal QR code when a host is available}')]
+#[Signature('lan:share {--host= : Hostname or IP address used by other devices on the network} {--laravel-port= : Preferred Laravel port} {--vite-port= : Preferred Vite port} {--distro= : WSL distribution name} {--script= : Save the PowerShell setup script to this path} {--prepare-only : Generate the setup script without starting the development servers} {--no-script : Do not print the PowerShell command} {--raw-script : Also print the complete PowerShell script} {--copy : Copy the PowerShell command to the Windows clipboard} {--json : Print the plan as JSON and exit} {--qr : Print a terminal QR code when a host is available}')]
 #[Description('Prepara e inicia o compartilhamento do ambiente Laravel/Vite na rede local')]
 final class LanShareCommand extends Command
 {
@@ -29,6 +30,7 @@ final class LanShareCommand extends Command
         private readonly PortAllocator $portAllocator,
         private readonly PowerShellScriptRenderer $scriptRenderer,
         private readonly PowerShellCommandRenderer $commandRenderer,
+        private readonly ClipboardWriter $clipboardWriter,
         private readonly QrCodeRenderer $qrCodeRenderer,
         private readonly ScriptFileWriter $scriptFileWriter,
     ) {
@@ -50,13 +52,25 @@ final class LanShareCommand extends Command
             return self::FAILURE;
         }
 
+        try {
+            $copiedToClipboard = $this->copyCommandIfRequested($powerShellCommand);
+        } catch (Throwable $exception) {
+            $this->components->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
+
         if ($this->option('json')) {
-            return $this->outputJson($plan, $script, $powerShellCommand);
+            return $this->outputJson($plan, $script, $powerShellCommand, $copiedToClipboard);
         }
 
         try {
             $this->displayPlan($plan, $script, $powerShellCommand);
             $this->saveScriptIfRequested($script);
+
+            if ($copiedToClipboard) {
+                $this->components->info('Comando PowerShell copiado para o clipboard do Windows.');
+            }
         } catch (Throwable $exception) {
             $this->components->error($exception->getMessage());
 
@@ -235,6 +249,17 @@ final class LanShareCommand extends Command
         $this->components->info("Script salvo em {$path}");
     }
 
+    private function copyCommandIfRequested(string $powerShellCommand): bool
+    {
+        if (! $this->option('copy')) {
+            return false;
+        }
+
+        $this->clipboardWriter->copy($powerShellCommand);
+
+        return true;
+    }
+
     private function stringOption(string $name): string
     {
         $value = $this->option($name);
@@ -242,12 +267,13 @@ final class LanShareCommand extends Command
         return is_string($value) ? trim($value) : '';
     }
 
-    private function outputJson(LanSharePlan $plan, string $script, string $powerShellCommand): int
+    private function outputJson(LanSharePlan $plan, string $script, string $powerShellCommand, bool $copiedToClipboard): int
     {
         $cleanupScript = $this->scriptRenderer->renderCleanup($plan->firewallRulePrefix);
         $payload = $plan->toArray() + [
             'powershell_script' => $script,
             'powershell_command' => $powerShellCommand,
+            'copied_to_clipboard' => $copiedToClipboard,
             'cleanup_script' => $cleanupScript,
             'serve_command' => $this->developmentCommand($plan),
         ];
