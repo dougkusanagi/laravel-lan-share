@@ -13,7 +13,10 @@ final class PortAllocator
     /**
      * @param  Closure(int): bool|null  $availabilityProbe
      */
-    public function __construct(private readonly ?Closure $availabilityProbe = null) {}
+    public function __construct(
+        private readonly ?Closure $availabilityProbe = null,
+        private readonly ?PortAvailabilityProbe $portAvailabilityProbe = null,
+    ) {}
 
     /**
      * @param  list<int>  $reservedPorts
@@ -47,6 +50,10 @@ final class PortAllocator
 
     private function isAvailable(int $port): bool
     {
+        if ($this->portAvailabilityProbe?->isAvailable($port) === false) {
+            return false;
+        }
+
         if ($this->availabilityProbe !== null) {
             return ($this->availabilityProbe)($port);
         }

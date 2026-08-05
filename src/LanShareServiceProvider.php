@@ -10,9 +10,11 @@ use DougKusanagi\LaravelLanShare\PowerShell\PowerShellScriptRenderer;
 use DougKusanagi\LaravelLanShare\Support\ClipboardWriter;
 use DougKusanagi\LaravelLanShare\Support\LanHostResolver;
 use DougKusanagi\LaravelLanShare\Support\PortAllocator;
+use DougKusanagi\LaravelLanShare\Support\PortAvailabilityProbe;
 use DougKusanagi\LaravelLanShare\Support\QrCodeRenderer;
 use DougKusanagi\LaravelLanShare\Support\ScriptFileWriter;
 use DougKusanagi\LaravelLanShare\Support\WindowsClipboardWriter;
+use DougKusanagi\LaravelLanShare\Support\WindowsPortAvailabilityProbe;
 use Illuminate\Support\ServiceProvider;
 
 final class LanShareServiceProvider extends ServiceProvider
@@ -22,6 +24,7 @@ final class LanShareServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(__DIR__.'/../config/lan-share.php', 'lan-share');
 
         $this->app->singleton(LanHostResolver::class);
+        $this->app->singleton(PortAvailabilityProbe::class, WindowsPortAvailabilityProbe::class);
         $this->app->singleton(PortAllocator::class);
         $this->app->singleton(PowerShellScriptRenderer::class);
         $this->app->singleton(QrCodeRenderer::class);

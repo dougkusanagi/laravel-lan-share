@@ -1,6 +1,7 @@
 <?php
 
 use DougKusanagi\LaravelLanShare\Support\PortAllocator;
+use DougKusanagi\LaravelLanShare\Support\PortAvailabilityProbe;
 
 it('seleciona a primeira porta livre a partir da preferência', function () {
     $allocator = new PortAllocator(
@@ -16,4 +17,21 @@ it('não reutiliza uma porta reservada', function () {
     );
 
     expect($allocator->find(8080, 5, [8080]))->toBe(8081);
+});
+
+it('pula uma porta ocupada no Windows antes de escolher a próxima', function () {
+    $windowsProbe = new class implements PortAvailabilityProbe
+    {
+        public function isAvailable(int $port): ?bool
+        {
+            return $port === 8080 ? false : true;
+        }
+    };
+
+    $allocator = new PortAllocator(
+        fn (int $port): bool => true,
+        $windowsProbe,
+    );
+
+    expect($allocator->find(8080, 5))->toBe(8081);
 });
