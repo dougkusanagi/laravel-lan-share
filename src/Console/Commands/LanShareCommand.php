@@ -336,6 +336,8 @@ final class LanShareCommand extends Command
             $this->newLine();
             $this->line('WhatsApp');
             $this->line('  '.$this->terminalLink($whatsAppUrl, 'Abrir conversa no WhatsApp ↗'));
+            $this->line('  Link direto:');
+            $this->line('  '.$whatsAppUrl);
         }
 
         $this->newLine();

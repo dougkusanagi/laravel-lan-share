@@ -19,7 +19,6 @@ final class ShareLinkBuilder
         return implode("\n", array_filter([
             "Acesse $projectName:",
             $url,
-            $this->availabilityMessage(),
         ]));
     }
 
