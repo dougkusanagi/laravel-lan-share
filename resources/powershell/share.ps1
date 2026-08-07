@@ -5,18 +5,40 @@ $ErrorActionPreference = 'Stop'
 $RulePrefix = {{ firewall_rule_prefix }}
 $LaravelPort = {{ laravel_port }}
 $VitePort = {{ vite_port }}
+$LaravelPortStart = {{ laravel_port_start }}
+$VitePortStart = {{ vite_port_start }}
+$PortSearchLimit = {{ port_search_limit }}
 $WslDistro = {{ wsl_distro }}
+$StateKey = {{ state_key }}
 $StateDirectory = Join-Path $env:LOCALAPPDATA 'DougKusanagi\LaravelLanShare'
-$StatePath = Join-Path $StateDirectory 'state.json'
+$StatePath = Join-Path $StateDirectory ("state-{0}.json" -f $StateKey)
+$LegacyStatePath = Join-Path $StateDirectory 'state.json'
 
 function Invoke-Netsh {
-    param([string[]] $Arguments)
+    param(
+        [string[]] $Arguments,
+        [switch] $IgnoreFailure
+    )
 
-    & netsh @Arguments | Out-Null
+    & netsh @Arguments 2>$null | Out-Null
 
-    if ($LASTEXITCODE -ne 0) {
+    if (-not $IgnoreFailure -and $LASTEXITCODE -ne 0) {
         throw "O comando netsh falhou com o código $LASTEXITCODE."
     }
+}
+
+function Remove-PortProxyMapping {
+    param([object] $Mapping)
+
+    if ($null -eq $Mapping -or [string]::IsNullOrWhiteSpace([string] $Mapping.listenAddress) -or $null -eq $Mapping.listenPort) {
+        return
+    }
+
+    Invoke-Netsh -Arguments @(
+        'interface', 'portproxy', 'delete', 'v4tov4',
+        "listenaddress=$($Mapping.listenAddress)",
+        "listenport=$($Mapping.listenPort)"
+    ) -IgnoreFailure
 }
 
 function Get-WslIp {
@@ -27,7 +49,10 @@ function Get-WslIp {
     }
 
     $output = (& wsl.exe @wslArguments hostname -I 2>$null) -join ' '
-    $address = ($output -split '\s+') | Where-Object { $_ -match '^\d{1,3}(\.\d{1,3}){3}$' } | Select-Object -First 1
+    $addresses = @($output -split '\s+' | Where-Object {
+        $_ -match '^\d{1,3}(\.\d{1,3}){3}$' -and $_ -notlike '127.*' -and $_ -notlike '169.254.*'
+    })
+    $address = $addresses | Select-Object -First 1
 
     if ([string]::IsNullOrWhiteSpace($address)) {
         throw 'Não foi possível detectar o IP interno do WSL. Verifique se a distribuição está em execução.'
@@ -50,32 +75,100 @@ function Get-LanIp {
     return $address
 }
 
-function Remove-ManagedResources {
-    if (Test-Path -LiteralPath $StatePath) {
-        $state = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
+function Get-StateMappings {
+    param([string] $Path)
 
-        foreach ($mapping in @($state.mappings)) {
-            if ($mapping.listenAddress -and $mapping.listenPort) {
-                & netsh interface portproxy delete v4tov4 listenaddress=$mapping.listenAddress listenport=$mapping.listenPort | Out-Null
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return @()
+    }
+
+    try {
+        $state = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+        return @($state.mappings)
+    } catch {
+        Write-Warning "Não foi possível ler o estado anterior em $Path."
+        return @()
+    }
+}
+
+function Get-PortProxyMappings {
+    $lines = @(& netsh interface portproxy show v4tov4 2>$null)
+
+    foreach ($line in $lines) {
+        $text = [string] $line
+
+        if ($text -match '^\s*(?<listenAddress>\d{1,3}(?:\.\d{1,3}){3})\s+(?<listenPort>\d+)\s+(?<connectAddress>\d{1,3}(?:\.\d{1,3}){3})\s+(?<connectPort>\d+)\s*$') {
+            [pscustomobject] @{
+                listenAddress = $Matches['listenAddress']
+                listenPort = [int] $Matches['listenPort']
+                connectAddress = $Matches['connectAddress']
+                connectPort = [int] $Matches['connectPort']
             }
         }
+    }
+}
 
-        foreach ($ruleName in @($state.firewallRuleNames)) {
-            Remove-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue
+function Test-PortInManagedRange {
+    param(
+        [int] $Port,
+        [int] $Start
+    )
+
+    if ($Start -lt 1) {
+        return $false
+    }
+
+    $end = [Math]::Min(65535, $Start + $PortSearchLimit - 1)
+
+    return $Port -ge $Start -and $Port -le $end
+}
+
+function Remove-ManagedResources {
+    param([string] $WslIp)
+
+    $statePaths = @($StatePath, $LegacyStatePath) | Select-Object -Unique
+
+    foreach ($path in $statePaths) {
+        foreach ($mapping in @(Get-StateMappings -Path $path)) {
+            Remove-PortProxyMapping -Mapping $mapping
+        }
+    }
+
+    # portproxy has no owner/name metadata. Remove only orphaned entries that
+    # point to this WSL instance and fall inside LAN Share's managed ranges.
+    foreach ($mapping in @(Get-PortProxyMappings)) {
+        $sameBackend = $mapping.connectAddress -eq $WslIp -and $mapping.connectPort -eq $mapping.listenPort
+        $managedPort = (Test-PortInManagedRange -Port $mapping.listenPort -Start $LaravelPortStart) -or
+            (Test-PortInManagedRange -Port $mapping.listenPort -Start $VitePortStart)
+
+        if ($sameBackend -and $managedPort) {
+            Remove-PortProxyMapping -Mapping $mapping
         }
     }
 
     Get-NetFirewallRule -Name "$RulePrefix-*" -ErrorAction SilentlyContinue |
         Remove-NetFirewallRule -ErrorAction SilentlyContinue
+
+    foreach ($path in $statePaths) {
+        Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Assert-PortAvailable {
-    param([int] $Port, [string] $ServiceName)
+    param(
+        [int] $Port,
+        [string] $ServiceName,
+        [string] $ListenAddress
+    )
 
-    $listeners = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue
+    $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue)
+    $blockingListeners = @($listeners | Where-Object {
+        $_.LocalAddress -notlike '127.*' -and $_.LocalAddress -ne '::1' -and
+        ($_.LocalAddress -eq '0.0.0.0' -or $_.LocalAddress -eq '::' -or $_.LocalAddress -eq $ListenAddress)
+    })
 
-    if ($listeners) {
-        throw "A porta $Port ($ServiceName) já está em uso no Windows. Execute novamente com uma porta diferente."
+    if ($blockingListeners.Count -gt 0) {
+        throw "A porta $Port ($ServiceName) já está em uso no Windows no endereço $ListenAddress. Execute novamente com uma porta diferente."
     }
 }
 
@@ -92,22 +185,41 @@ function Test-HttpEndpoint {
 
 $createdMappings = @()
 $createdFirewallRuleNames = @()
+$temporaryStatePath = "$StatePath.$PID.tmp"
 
 try {
     New-Item -ItemType Directory -Path $StateDirectory -Force | Out-Null
-    Remove-ManagedResources
 
     $wslIp = Get-WslIp
     $lanIp = Get-LanIp
+    Remove-ManagedResources -WslIp $wslIp
 
-    Assert-PortAvailable -Port $LaravelPort -ServiceName 'Laravel'
-    Assert-PortAvailable -Port $VitePort -ServiceName 'Vite'
+    Assert-PortAvailable -Port $LaravelPort -ServiceName 'Laravel' -ListenAddress $lanIp
+    Assert-PortAvailable -Port $VitePort -ServiceName 'Vite' -ListenAddress $lanIp
 
-    Invoke-Netsh -Arguments @('interface', 'portproxy', 'add', 'v4tov4', "listenaddress=$lanIp", "listenport=$LaravelPort", "connectaddress=$wslIp", "connectport=$LaravelPort")
-    $createdMappings += [ordered]@{ listenAddress = $lanIp; listenPort = $LaravelPort }
+    Invoke-Netsh -Arguments @(
+        'interface', 'portproxy', 'add', 'v4tov4',
+        "listenaddress=$lanIp", "listenport=$LaravelPort",
+        "connectaddress=$wslIp", "connectport=$LaravelPort"
+    )
+    $createdMappings += [ordered] @{
+        listenAddress = $lanIp
+        listenPort = $LaravelPort
+        connectAddress = $wslIp
+        connectPort = $LaravelPort
+    }
 
-    Invoke-Netsh -Arguments @('interface', 'portproxy', 'add', 'v4tov4', "listenaddress=$lanIp", "listenport=$VitePort", "connectaddress=$wslIp", "connectport=$VitePort")
-    $createdMappings += [ordered]@{ listenAddress = $lanIp; listenPort = $VitePort }
+    Invoke-Netsh -Arguments @(
+        'interface', 'portproxy', 'add', 'v4tov4',
+        "listenaddress=$lanIp", "listenport=$VitePort",
+        "connectaddress=$wslIp", "connectport=$VitePort"
+    )
+    $createdMappings += [ordered] @{
+        listenAddress = $lanIp
+        listenPort = $VitePort
+        connectAddress = $wslIp
+        connectPort = $VitePort
+    }
 
     $laravelRuleName = "$RulePrefix-Laravel"
     $viteRuleName = "$RulePrefix-Vite"
@@ -121,18 +233,17 @@ try {
     New-NetFirewallRule -Name $viteRuleName -DisplayName "$RulePrefix Vite $VitePort" -Direction Inbound -Protocol TCP -LocalAddress $lanIp -LocalPort $VitePort -RemoteAddress LocalSubnet -Action Allow -Profile Any | Out-Null
     $createdFirewallRuleNames += $viteRuleName
 
-    $state = [ordered]@{
-        version = 1
+    $state = [ordered] @{
+        version = 2
+        stateKey = $StateKey
         lanIp = $lanIp
         wslIp = $wslIp
-        mappings = @(
-            [ordered]@{ listenAddress = $lanIp; listenPort = $LaravelPort; connectAddress = $wslIp; connectPort = $LaravelPort }
-            [ordered]@{ listenAddress = $lanIp; listenPort = $VitePort; connectAddress = $wslIp; connectPort = $VitePort }
-        )
-        firewallRuleNames = @($laravelRuleName, $viteRuleName)
+        mappings = @($createdMappings)
+        firewallRuleNames = @($createdFirewallRuleNames)
     }
 
-    $state | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $StatePath -Encoding UTF8
+    $state | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $temporaryStatePath -Encoding UTF8
+    Move-Item -LiteralPath $temporaryStatePath -Destination $StatePath -Force
 
     $laravelUrl = "http://{0}:{1}" -f $lanIp, $LaravelPort
     $viteUrl = "http://{0}:{1}" -f $lanIp, $VitePort
@@ -152,16 +263,17 @@ try {
     Write-Host "HTTP Laravel: $(if ($laravelHttpOk) { 'OK' } else { 'aguardando o servidor WSL' })"
     Write-Host "HTTP Vite:    $(if ($viteHttpOk) { 'OK' } else { 'aguardando o servidor WSL' })"
     Write-Host ''
-    Write-Host 'Para remover, gere e execute: php artisan lan:share:cleanup --script=lan-share-cleanup.ps1'
+    Write-Host 'Para remover portproxy e firewall, gere e execute: php artisan lan:share:cleanup --script=lan-share-cleanup.ps1'
 } catch {
     foreach ($mapping in @($createdMappings)) {
-        & netsh interface portproxy delete v4tov4 listenaddress=$mapping.listenAddress listenport=$mapping.listenPort | Out-Null
+        Remove-PortProxyMapping -Mapping $mapping
     }
 
     foreach ($ruleName in @($createdFirewallRuleNames)) {
         Remove-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue
     }
 
+    Remove-Item -LiteralPath $temporaryStatePath -Force -ErrorAction SilentlyContinue
     Write-Error $_.Exception.Message
     exit 1
 }

@@ -4,35 +4,48 @@ declare(strict_types=1);
 
 namespace DougKusanagi\LaravelLanShare\Console\Commands;
 
+use DougKusanagi\LaravelLanShare\Agent\AgentShareSession;
+use DougKusanagi\LaravelLanShare\Agent\AgentInstallationRequiredException;
+use DougKusanagi\LaravelLanShare\Agent\WindowsAgentClient;
 use DougKusanagi\LaravelLanShare\PowerShell\PowerShellCommandRenderer;
 use DougKusanagi\LaravelLanShare\PowerShell\PowerShellScriptRenderer;
 use DougKusanagi\LaravelLanShare\Support\ClipboardWriter;
 use DougKusanagi\LaravelLanShare\Support\LanHostResolver;
 use DougKusanagi\LaravelLanShare\Support\LanSharePlan;
 use DougKusanagi\LaravelLanShare\Support\PortAllocator;
+use DougKusanagi\LaravelLanShare\Support\PreviousShareProcessKiller;
 use DougKusanagi\LaravelLanShare\Support\QrCodeRenderer;
 use DougKusanagi\LaravelLanShare\Support\ScriptFileWriter;
+use DougKusanagi\LaravelLanShare\Support\ShareLinkBuilder;
+use DougKusanagi\LaravelLanShare\Support\StateKeyResolver;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Process\InvokedProcess;
+use Illuminate\Contracts\Process\ProcessResult;
 use Illuminate\Process\InvokedProcess as LaravelInvokedProcess;
 use Illuminate\Support\Facades\Process;
 use InvalidArgumentException;
 use Throwable;
 
-#[Signature('lan:share {--host= : Hostname or IP address used by other devices on the network} {--laravel-port= : Preferred Laravel port} {--vite-port= : Preferred Vite port} {--distro= : WSL distribution name} {--script= : Save the PowerShell setup script to this path} {--prepare-only : Generate the setup script without starting the development servers} {--no-script : Do not print the PowerShell command} {--raw-script : Also print the complete PowerShell script} {--copy : Copy the PowerShell command to the Windows clipboard} {--json : Print the plan as JSON and exit} {--qr : Print a terminal QR code when a host is available}')]
+#[Signature('lan:share {--host= : Hostname or IP address used by other devices on the network} {--laravel-port= : Preferred Laravel port} {--vite-port= : Preferred Vite port} {--distro= : WSL distribution name} {--script= : Save the PowerShell setup script to this path} {--prepare-only : Generate the setup script without starting the development servers} {--replace : Force stopping the previous LAN Share processes for this project} {--no-replace : Keep previous LAN Share processes for this project} {--legacy : Use the generated PowerShell script instead of the Windows agent} {--install : Install or update the Windows agent without asking for confirmation} {--no-script : Do not print the PowerShell command} {--raw-script : Also print the complete PowerShell script} {--copy : Copy the PowerShell command to the Windows clipboard} {--json : Print the plan as JSON and exit} {--qr : Force the terminal QR code} {--no-qr : Do not print the terminal QR code} {--no-share-links : Do not print sharing links}')]
 #[Description('Prepara e inicia o compartilhamento do ambiente Laravel/Vite na rede local')]
 final class LanShareCommand extends Command
 {
+    private ?AgentShareSession $agentSession = null;
+
     public function __construct(
         private readonly LanHostResolver $hostResolver,
         private readonly PortAllocator $portAllocator,
+        private readonly PreviousShareProcessKiller $previousShareProcessKiller,
         private readonly PowerShellScriptRenderer $scriptRenderer,
         private readonly PowerShellCommandRenderer $commandRenderer,
         private readonly ClipboardWriter $clipboardWriter,
         private readonly QrCodeRenderer $qrCodeRenderer,
         private readonly ScriptFileWriter $scriptFileWriter,
+        private readonly StateKeyResolver $stateKeyResolver,
+        private readonly WindowsAgentClient $agentClient,
+        private readonly ShareLinkBuilder $shareLinkBuilder,
     ) {
         parent::__construct();
     }
@@ -43,10 +56,13 @@ final class LanShareCommand extends Command
     public function handle(): int
     {
         try {
-            $plan = $this->buildPlan();
-            $script = $this->scriptRenderer->renderShare($plan);
-            $powerShellCommand = $this->commandRenderer->render($script, 'DougKusanagi-LaravelLanShare.ps1');
+            $this->stopPreviousShareIfRequested();
+            $useAgent = $this->shouldUseAgent();
+            $plan = $this->buildPlan($useAgent);
+            $plan = $this->prepareAgentIfEnabled($plan, $useAgent);
+            [$script, $powerShellCommand] = $this->legacyArtifacts($plan);
         } catch (Throwable $exception) {
+            $this->stopAgentSession();
             $this->components->error($exception->getMessage());
 
             return self::FAILURE;
@@ -55,6 +71,7 @@ final class LanShareCommand extends Command
         try {
             $copiedToClipboard = $this->copyCommandIfRequested($powerShellCommand);
         } catch (Throwable $exception) {
+            $this->stopAgentSession();
             $this->components->error($exception->getMessage());
 
             return self::FAILURE;
@@ -72,6 +89,7 @@ final class LanShareCommand extends Command
                 $this->components->info('Comando PowerShell copiado para o clipboard do Windows.');
             }
         } catch (Throwable $exception) {
+            $this->stopAgentSession();
             $this->components->error($exception->getMessage());
 
             return self::FAILURE;
@@ -84,15 +102,41 @@ final class LanShareCommand extends Command
         return $this->serve($plan);
     }
 
-    private function buildPlan(): LanSharePlan
+    private function stopPreviousShareIfRequested(): void
+    {
+        if ($this->option('prepare-only') || $this->option('json')) {
+            return;
+        }
+
+        $replaceExisting = (bool) $this->option('replace') || (
+            (bool) config('lan-share.replace_existing', true) &&
+            ! $this->option('no-replace')
+        );
+
+        if (! $replaceExisting) {
+            return;
+        }
+
+        $viteConfig = (string) config('lan-share.vite_config', 'vite.lan.config.ts');
+        $stoppedGroups = $this->previousShareProcessKiller->stop(base_path(), $viteConfig);
+
+        if ($stoppedGroups > 0) {
+            $this->components->info("Compartilhamento anterior encerrado ({$stoppedGroups} grupo(s) de processo).");
+        }
+    }
+
+    private function buildPlan(bool $useAgent): LanSharePlan
     {
         $searchLimit = max(1, (int) config('lan-share.port_search_limit', 20));
-        $laravelPort = $this->portAllocator->find(
-            $this->resolvePort('laravel-port', 'laravel_port'),
+        $laravelPortStart = $this->resolvePort('laravel-port', 'laravel_port');
+        $vitePortStart = $this->resolvePort('vite-port', 'vite_port');
+        $allocator = $useAgent ? 'findLocal' : 'find';
+        $laravelPort = $this->portAllocator->{$allocator}(
+            $laravelPortStart,
             $searchLimit,
         );
-        $vitePort = $this->portAllocator->find(
-            $this->resolvePort('vite-port', 'vite_port'),
+        $vitePort = $this->portAllocator->{$allocator}(
+            $vitePortStart,
             $searchLimit,
             [$laravelPort],
         );
@@ -103,8 +147,11 @@ final class LanShareCommand extends Command
             portSearchLimit: $searchLimit,
             viteConfig: (string) config('lan-share.vite_config', 'vite.lan.config.ts'),
             firewallRulePrefix: (string) config('lan-share.firewall_rule_prefix', 'DougKusanagi-LaravelLanShare'),
-            host: $this->resolveHost(),
+            host: $this->resolveHost($useAgent),
             wslDistro: $this->resolveDistro(),
+            laravelPortStart: $laravelPortStart,
+            vitePortStart: $vitePortStart,
+            stateKey: $this->stateKeyResolver->resolve(base_path()),
         );
     }
 
@@ -124,7 +171,7 @@ final class LanShareCommand extends Command
         return $preferredPort;
     }
 
-    private function resolveHost(): ?string
+    private function resolveHost(bool $useAgent): ?string
     {
         $optionHost = $this->stringOption('host');
 
@@ -139,10 +186,8 @@ final class LanShareCommand extends Command
             return trim($configuredHost, '[]');
         }
 
-        $resolvedHost = $this->hostResolver->resolve();
-
-        if ($resolvedHost !== null) {
-            return $resolvedHost;
+        if ($useAgent) {
+            return null;
         }
 
         $appHost = parse_url((string) config('app.url'), PHP_URL_HOST);
@@ -151,7 +196,13 @@ final class LanShareCommand extends Command
             return trim($appHost, '[]');
         }
 
-        return $this->hostResolver->resolve();
+        $resolvedHost = $this->hostResolver->resolve();
+
+        if ($resolvedHost !== null) {
+            return $resolvedHost;
+        }
+
+        return null;
     }
 
     private function resolveDistro(): ?string
@@ -185,14 +236,19 @@ final class LanShareCommand extends Command
         if ($plan->host !== null) {
             $this->line("URL Laravel:    {$plan->url($plan->laravelPort)}");
             $this->line("URL Vite:       {$plan->url($plan->vitePort)}");
-        } else {
+        } elseif ($this->agentSession === null) {
             $this->components->warn('O IP LAN do Windows não foi detectado. O script PowerShell tentará encontrá-lo.');
         }
 
         $this->newLine();
-        $this->line('Abra o PowerShell como Administrador, cole e execute o script abaixo:');
+        if ($this->agentSession !== null) {
+            $this->components->info('Agente Windows ativo: portproxy e Firewall serão removidos automaticamente.');
+            $this->line("Sessão do agente: {$this->agentSession->sessionId}");
+        } else {
+            $this->line('Abra o PowerShell como Administrador, cole e execute o script abaixo:');
+        }
 
-        if (! $this->option('no-script')) {
+        if ($this->agentSession === null && ! $this->option('no-script')) {
             $this->newLine();
             $this->line('Cole esta linha única no PowerShell como Administrador:');
             $this->line($powerShellCommand);
@@ -211,14 +267,29 @@ final class LanShareCommand extends Command
         }
 
         $this->newLine();
-        $this->line('Para remover o compartilhamento: php artisan lan:share:cleanup --script=lan-share-cleanup.ps1');
-
-        if ($this->option('qr')) {
-            $this->displayQrCodes($plan);
+        if ($this->agentSession === null) {
+            $this->line('Para remover portproxy e firewall do Windows, gere e execute: php artisan lan:share:cleanup --script=lan-share-cleanup.ps1');
+        } else {
+            $this->line('O encerramento desta sessão removerá os recursos do Windows automaticamente.');
         }
+
+        if ($this->shouldDisplayQrCode()) {
+            $this->displayQrCode($plan);
+        }
+
+        $this->displayShareLinks($plan);
     }
 
-    private function displayQrCodes(LanSharePlan $plan): void
+    private function shouldDisplayQrCode(): bool
+    {
+        if ($this->option('prepare-only') || $this->option('no-qr')) {
+            return false;
+        }
+
+        return (bool) $this->option('qr') || (bool) config('lan-share.qr.enabled', true);
+    }
+
+    private function displayQrCode(LanSharePlan $plan): void
     {
         if ($plan->host === null) {
             $this->components->warn('Não foi possível gerar o QR Code sem um IP LAN.');
@@ -226,15 +297,53 @@ final class LanShareCommand extends Command
             return;
         }
 
-        foreach (['Laravel' => $plan->url($plan->laravelPort), 'Vite' => $plan->url($plan->vitePort)] as $name => $url) {
-            if ($url === null) {
-                continue;
-            }
+        $url = $plan->url($plan->laravelPort);
 
+        if ($url !== null) {
             $this->newLine();
-            $this->line("QR Code — {$name} ({$url})");
+            $this->line("QR Code — Aplicação ({$url})");
             $this->line($this->qrCodeRenderer->render($url));
         }
+    }
+
+    private function displayShareLinks(LanSharePlan $plan): void
+    {
+        if ($this->option('prepare-only') || $this->option('no-share-links') || $plan->host === null) {
+            return;
+        }
+
+        $url = $plan->url($plan->laravelPort);
+
+        if ($url === null) {
+            return;
+        }
+
+        $project = (string) config('app.name', basename(base_path()));
+        $this->newLine();
+        $this->line('Disponibilidade: '.$this->shareLinkBuilder->availabilityMessage());
+
+        if ((bool) config('lan-share.share_page.enabled', true)) {
+            $this->line('Página para compartilhar: '.$this->shareLinkBuilder->sharePageUrl($url));
+        }
+
+        if ((bool) config('lan-share.sharing.whatsapp', true)) {
+            $this->line('WhatsApp: '.$this->shareLinkBuilder->whatsAppUrl($project, $url));
+        }
+    }
+
+    /** @return array{string, string} */
+    private function legacyArtifacts(LanSharePlan $plan): array
+    {
+        if ($this->agentSession !== null) {
+            return ['', ''];
+        }
+
+        $script = $this->scriptRenderer->renderShare($plan);
+
+        return [
+            $script,
+            $this->commandRenderer->render($script, 'DougKusanagi-LaravelLanShare.ps1'),
+        ];
     }
 
     private function saveScriptIfRequested(string $script): void
@@ -269,7 +378,14 @@ final class LanShareCommand extends Command
 
     private function outputJson(LanSharePlan $plan, string $script, string $powerShellCommand, bool $copiedToClipboard): int
     {
-        $cleanupScript = $this->scriptRenderer->renderCleanup($plan->firewallRulePrefix);
+        $cleanupScript = $this->scriptRenderer->renderCleanup(
+            $plan->firewallRulePrefix,
+            $plan->stateKey,
+            $plan->laravelPortStart > 0 ? $plan->laravelPortStart : $plan->laravelPort,
+            $plan->vitePortStart > 0 ? $plan->vitePortStart : $plan->vitePort,
+            $plan->portSearchLimit,
+            $plan->wslDistro,
+        );
         $payload = $plan->toArray() + [
             'powershell_script' => $script,
             'powershell_command' => $powerShellCommand,
@@ -304,7 +420,7 @@ final class LanShareCommand extends Command
             $processId = $process->id();
             $this->registerSignalHandlers($process, $processId, $receivedSignal, $previousSignalHandlers);
 
-            $result = $process->wait();
+            $result = $this->waitForDevelopmentProcess($process);
         } catch (Throwable $exception) {
             $this->error("Não foi possível iniciar o ambiente de desenvolvimento: {$exception->getMessage()}");
 
@@ -313,6 +429,8 @@ final class LanShareCommand extends Command
             if ($process instanceof InvokedProcess) {
                 $this->stopProcess($process, $processId);
             }
+
+            $this->stopAgentSession();
 
             foreach ($previousSignalHandlers as $signal => $handler) {
                 pcntl_signal($signal, $handler);
@@ -334,6 +452,119 @@ final class LanShareCommand extends Command
         $this->error('Não foi possível iniciar o ambiente de desenvolvimento.');
 
         return $result->exitCode() ?? self::FAILURE;
+    }
+
+    private function prepareAgentIfEnabled(LanSharePlan $plan, bool $useAgent): LanSharePlan
+    {
+        if (! $useAgent) {
+            return $plan;
+        }
+
+        try {
+            $this->agentSession = $this->agentClient->prepare($plan);
+
+            return $this->agentSession->plan;
+        } catch (AgentInstallationRequiredException $exception) {
+            $this->agentClient->close();
+
+            if (! $this->shouldInstallAgent($exception)) {
+                throw $exception;
+            }
+
+            $installation = $this->agentClient->install();
+            $status = $installation['updated'] ? 'instalado/atualizado' : 'já estava atualizado';
+            $this->components->info("Agente Windows $status.");
+            $this->line("Diretório: {$installation['path']}");
+            $this->agentSession = $this->agentClient->prepare($plan);
+
+            return $this->agentSession->plan;
+        } catch (Throwable $exception) {
+            $this->agentClient->close();
+
+            if (! (bool) config('lan-share.agent.fallback_to_script', true)) {
+                throw $exception;
+            }
+
+            $this->components->warn('O agente Windows não pôde ser iniciado. O fluxo legado por script PowerShell será usado.');
+            $this->components->warn($exception->getMessage());
+
+            return $plan;
+        }
+    }
+
+    private function shouldInstallAgent(AgentInstallationRequiredException $exception): bool
+    {
+        if ($this->option('install')) {
+            return true;
+        }
+
+        if (! $this->input->isInteractive()) {
+            throw new AgentInstallationRequiredException(
+                $exception->getMessage().' Execute novamente com --install para instalar automaticamente.',
+                previous: $exception,
+            );
+        }
+
+        $this->components->warn($exception->getMessage());
+
+        return $this->confirm('Deseja instalar ou atualizar o agente Windows agora?', true);
+    }
+
+    private function shouldUseAgent(): bool
+    {
+        if ($this->option('prepare-only') ||
+            $this->option('json') ||
+            $this->option('legacy') ||
+            $this->option('copy') ||
+            $this->option('raw-script') ||
+            $this->stringOption('script') !== '' ||
+            ! (bool) config('lan-share.agent.enabled', true)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function stopAgentSession(): void
+    {
+        if ($this->agentSession === null) {
+            return;
+        }
+
+        try {
+            $this->agentClient->stop($this->agentSession);
+        } catch (Throwable $exception) {
+            $this->components->warn("Não foi possível remover os recursos do agente Windows: {$exception->getMessage()}");
+            $this->agentClient->close();
+        } finally {
+            $this->agentSession = null;
+        }
+    }
+
+    private function waitForDevelopmentProcess(InvokedProcess $process): ProcessResult
+    {
+        $nextHeartbeat = microtime(true);
+        $heartbeatInterval = max(2, (int) config('lan-share.agent.heartbeat_interval', 3));
+
+        while ($process->running()) {
+            if ($this->agentSession !== null && microtime(true) >= $nextHeartbeat) {
+                try {
+                    $this->agentClient->heartbeat($this->agentSession);
+                } catch (Throwable $exception) {
+                    $this->components->error("O heartbeat do agente Windows falhou: {$exception->getMessage()}");
+                    $this->stopProcess($process, $process->id());
+                    break;
+                }
+
+                $nextHeartbeat = microtime(true) + $heartbeatInterval;
+            }
+
+            usleep(200000);
+        }
+
+        $result = $process->wait();
+
+        return $result;
     }
 
     /**
@@ -383,8 +614,13 @@ final class LanShareCommand extends Command
             ? $plan->viteConfig
             : escapeshellarg($plan->viteConfig);
 
+        $concurrently = is_executable(base_path('node_modules/.bin/concurrently'))
+            ? './node_modules/.bin/concurrently'
+            : 'npx --no-install concurrently';
+
         return sprintf(
-            'npx concurrently -c "#93c5fd,#c4b5fd" "php artisan serve --host=0.0.0.0 --port=%d" "npm run dev -- --config %s --host=0.0.0.0 --port=%d" --names=\'server,vite\' --kill-others-on-fail',
+            '%s -c "#93c5fd,#c4b5fd" "php artisan serve --host=0.0.0.0 --port=%d" "npm run dev -- --config %s --host=0.0.0.0 --port=%d" --names=\'server,vite\' --kill-others-on-fail',
+            $concurrently,
             $plan->laravelPort,
             $viteConfig,
             $plan->vitePort,

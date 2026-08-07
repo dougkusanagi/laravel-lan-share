@@ -11,6 +11,6 @@ final class PowerShellCommandRenderer
         $encodedScript = base64_encode("\xEF\xBB\xBF".$script);
         $escapedFileName = str_replace("'", "''", $fileName);
 
-        return "\$scriptPath=[IO.Path]::Combine([IO.Path]::GetTempPath(),'{$escapedFileName}');[IO.File]::WriteAllBytes(\$scriptPath,[Convert]::FromBase64String('{$encodedScript}'));& \$scriptPath";
+        return "\$scriptPath=[IO.Path]::Combine([IO.Path]::GetTempPath(),'{$escapedFileName}');[IO.File]::WriteAllBytes(\$scriptPath,[Convert]::FromBase64String('{$encodedScript}'));try{& \$scriptPath}finally{Remove-Item -LiteralPath \$scriptPath -Force -ErrorAction SilentlyContinue}";
     }
 }

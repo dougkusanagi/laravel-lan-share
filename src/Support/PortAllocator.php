@@ -23,6 +23,23 @@ final class PortAllocator
      */
     public function find(int $preferredPort, int $searchLimit = 20, array $reservedPorts = []): int
     {
+        return $this->findWithProbe($preferredPort, $searchLimit, $reservedPorts, true);
+    }
+
+    /**
+     * Selects a port available in WSL without starting a Windows PowerShell probe.
+     * The Windows agent performs the final cross-platform validation atomically.
+     *
+     * @param  list<int>  $reservedPorts
+     */
+    public function findLocal(int $preferredPort, int $searchLimit = 20, array $reservedPorts = []): int
+    {
+        return $this->findWithProbe($preferredPort, $searchLimit, $reservedPorts, false);
+    }
+
+    /** @param list<int> $reservedPorts */
+    private function findWithProbe(int $preferredPort, int $searchLimit, array $reservedPorts, bool $probeWindows): int
+    {
         $this->validatePort($preferredPort);
 
         if ($searchLimit < 1) {
@@ -36,7 +53,7 @@ final class PortAllocator
                 continue;
             }
 
-            if ($this->isAvailable($port)) {
+            if ($this->isAvailable($port, $probeWindows)) {
                 return $port;
             }
         }
@@ -48,9 +65,9 @@ final class PortAllocator
         ));
     }
 
-    private function isAvailable(int $port): bool
+    private function isAvailable(int $port, bool $probeWindows): bool
     {
-        if ($this->portAvailabilityProbe?->isAvailable($port) === false) {
+        if ($probeWindows && $this->portAvailabilityProbe?->isAvailable($port) === false) {
             return false;
         }
 

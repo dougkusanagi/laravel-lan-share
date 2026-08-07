@@ -18,9 +18,16 @@ it('renderiza o setup PowerShell com regras idempotentes e validações', functi
 
     expect($script)
         ->toContain('#requires -RunAsAdministrator')
-        ->toContain("Invoke-Netsh -Arguments @('interface', 'portproxy', 'add', 'v4tov4'")
+        ->toContain('Invoke-Netsh')
+        ->toContain("'interface', 'portproxy', 'add', 'v4tov4'")
         ->toContain('New-NetFirewallRule')
         ->toContain('Test-NetConnection')
+        ->toContain('$StatePath = Join-Path $StateDirectory ("state-{0}.json" -f $StateKey)')
+        ->toContain('$LaravelPortStart = 8080')
+        ->toContain('Get-PortProxyMappings')
+        ->toContain("\$_.LocalAddress -notlike '127.*'")
+        ->toContain("\$_.LocalAddress -ne '::1'")
+        ->toContain("Assert-PortAvailable -Port \$LaravelPort -ServiceName 'Laravel' -ListenAddress \$lanIp")
         ->toContain("\$RulePrefix = 'DougKusanagi-LaravelLanShare'");
 });
 
@@ -30,6 +37,7 @@ it('renderiza o cleanup apenas para recursos gerenciados pelo pacote', function 
     expect($script)
         ->toContain('#requires -RunAsAdministrator')
         ->toContain('Remove-NetFirewallRule')
-        ->toContain('portproxy delete')
+        ->toContain("'interface', 'portproxy', 'delete', 'v4tov4'")
+        ->toContain('Get-PortProxyMappings')
         ->toContain("\$RulePrefix = 'DougKusanagi-LaravelLanShare'");
 });
