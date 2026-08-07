@@ -48,3 +48,11 @@ LAN_SHARE_REPLACE_EXISTING=false
 ```
 
 O agente atual é PowerShell por ser o caminho sem compilação adicional no MVP. O protocolo JSON/Named Pipe foi mantido independente para permitir uma futura implementação em .NET sem alterar os comandos Artisan.
+
+## Implementações futuras
+
+As propostas abaixo ainda não estão disponíveis e possuem documentos próprios para manter este README focado no uso atual:
+
+- [Inicialização automática e acesso permanente na LAN](docs/autostart.md)
+- [Execução nativa no Windows](docs/native-windows.md)
+- [Túnel público temporário](docs/public-tunnel.md)
