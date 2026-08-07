@@ -335,21 +335,10 @@ final class LanShareCommand extends Command
             $whatsAppUrl = $this->shareLinkBuilder->whatsAppUrl($project, $url);
             $this->newLine();
             $this->line('WhatsApp');
-            $this->line('  '.$this->terminalLink($whatsAppUrl, 'Abrir conversa no WhatsApp ↗'));
-            $this->line('  Link direto:');
             $this->line('  '.$whatsAppUrl);
         }
 
         $this->newLine();
-    }
-
-    private function terminalLink(string $url, string $label): string
-    {
-        if (! $this->output->isDecorated()) {
-            return $url;
-        }
-
-        return "<href={$url}>{$label}</>";
     }
 
     /** @return array{string, string} */
