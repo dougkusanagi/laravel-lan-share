@@ -320,15 +320,34 @@ final class LanShareCommand extends Command
 
         $project = (string) config('app.name', basename(base_path()));
         $this->newLine();
-        $this->line('Disponibilidade: '.$this->shareLinkBuilder->availabilityMessage());
+        $this->components->info('Compartilhar com outros dispositivos');
+        $this->newLine();
+        $this->line('Disponibilidade');
+        $this->line('  '.$this->shareLinkBuilder->availabilityMessage());
 
         if ((bool) config('lan-share.share_page.enabled', true)) {
-            $this->line('Página para compartilhar: '.$this->shareLinkBuilder->sharePageUrl($url));
+            $this->newLine();
+            $this->line('Página de compartilhamento');
+            $this->line('  '.$this->shareLinkBuilder->sharePageUrl($url));
         }
 
         if ((bool) config('lan-share.sharing.whatsapp', true)) {
-            $this->line('WhatsApp: '.$this->shareLinkBuilder->whatsAppUrl($project, $url));
+            $whatsAppUrl = $this->shareLinkBuilder->whatsAppUrl($project, $url);
+            $this->newLine();
+            $this->line('WhatsApp');
+            $this->line('  '.$this->terminalLink($whatsAppUrl, 'Abrir conversa no WhatsApp ↗'));
         }
+
+        $this->newLine();
+    }
+
+    private function terminalLink(string $url, string $label): string
+    {
+        if (! $this->output->isDecorated()) {
+            return $url;
+        }
+
+        return "<href={$url}>{$label}</>";
     }
 
     /** @return array{string, string} */
