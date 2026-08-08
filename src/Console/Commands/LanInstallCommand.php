@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace DougKusanagi\LaravelLanShare\Console\Commands;
 
 use DougKusanagi\LaravelLanShare\Agent\WindowsAgentClient;
+use DougKusanagi\LaravelLanShare\Support\ViteLanConfigInstaller;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -14,8 +15,10 @@ use Throwable;
 #[Description('Instala ou atualiza o agente Windows usado pelo LAN Share')]
 final class LanInstallCommand extends Command
 {
-    public function __construct(private readonly WindowsAgentClient $agentClient)
-    {
+    public function __construct(
+        private readonly WindowsAgentClient $agentClient,
+        private readonly ViteLanConfigInstaller $viteLanConfigInstaller,
+    ) {
         parent::__construct();
     }
 
@@ -32,6 +35,8 @@ final class LanInstallCommand extends Command
                 $this->line('A instância anterior foi encerrada; lan:share iniciará a nova versão.');
             }
 
+            $this->ensureViteLanConfig();
+
             return self::SUCCESS;
         } catch (Throwable $exception) {
             $this->components->error($exception->getMessage());
@@ -40,5 +45,16 @@ final class LanInstallCommand extends Command
         } finally {
             $this->agentClient->close();
         }
+    }
+
+    private function ensureViteLanConfig(): void
+    {
+        $outcome = $this->viteLanConfigInstaller->install();
+
+        match ($outcome) {
+            'created' => $this->components->info('Criado vite.lan.config.ts a partir do vite.config.ts do projeto.'),
+            'exists' => $this->components->info('vite.lan.config.ts já existe; mantido como está.'),
+            default => $this->components->warn('vite.config.ts não encontrado; o compartilhamento usará a configuração padrão.'),
+        };
     }
 }
