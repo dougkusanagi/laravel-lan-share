@@ -22,6 +22,7 @@ use DougKusanagi\LaravelLanShare\Support\QrCodeRenderer;
 use DougKusanagi\LaravelLanShare\Support\ScriptFileWriter;
 use DougKusanagi\LaravelLanShare\Support\ShareLinkBuilder;
 use DougKusanagi\LaravelLanShare\Support\StateKeyResolver;
+use DougKusanagi\LaravelLanShare\Support\ViteConfigResolver;
 use DougKusanagi\LaravelLanShare\Support\WindowsClipboardWriter;
 use DougKusanagi\LaravelLanShare\Support\WindowsPortAvailabilityProbe;
 use Illuminate\Support\Facades\Route;
@@ -45,6 +46,7 @@ final class LanShareServiceProvider extends ServiceProvider
         $this->app->singleton(ShareLinkBuilder::class);
         $this->app->singleton(WindowsAgentClient::class);
         $this->app->singleton(ClipboardWriter::class, WindowsClipboardWriter::class);
+        $this->app->singleton(ViteConfigResolver::class);
     }
 
     public function boot(): void

@@ -18,6 +18,7 @@ use DougKusanagi\LaravelLanShare\Support\QrCodeRenderer;
 use DougKusanagi\LaravelLanShare\Support\ScriptFileWriter;
 use DougKusanagi\LaravelLanShare\Support\ShareLinkBuilder;
 use DougKusanagi\LaravelLanShare\Support\StateKeyResolver;
+use DougKusanagi\LaravelLanShare\Support\ViteConfigResolver;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -46,6 +47,7 @@ final class LanShareCommand extends Command
         private readonly StateKeyResolver $stateKeyResolver,
         private readonly WindowsAgentClient $agentClient,
         private readonly ShareLinkBuilder $shareLinkBuilder,
+        private readonly ViteConfigResolver $viteConfigResolver,
     ) {
         parent::__construct();
     }
@@ -117,7 +119,7 @@ final class LanShareCommand extends Command
             return;
         }
 
-        $viteConfig = (string) config('lan-share.vite_config', 'vite.lan.config.ts');
+        $viteConfig = $this->viteConfigResolver->resolve();
         $stoppedGroups = $this->previousShareProcessKiller->stop(base_path(), $viteConfig);
 
         if ($stoppedGroups > 0) {
@@ -145,7 +147,7 @@ final class LanShareCommand extends Command
             laravelPort: $laravelPort,
             vitePort: $vitePort,
             portSearchLimit: $searchLimit,
-            viteConfig: (string) config('lan-share.vite_config', 'vite.lan.config.ts'),
+            viteConfig: $this->viteConfigResolver->resolve(),
             firewallRulePrefix: (string) config('lan-share.firewall_rule_prefix', 'DougKusanagi-LaravelLanShare'),
             host: $this->resolveHost($useAgent),
             wslDistro: $this->resolveDistro(),
