@@ -11,6 +11,8 @@ php artisan lan:share
 
 `lan:install` instala ou atualiza antecipadamente os scripts do agente em `%LOCALAPPDATA%`. Se o agente estiver ausente ou desatualizado, `lan:share` oferece a instalação automaticamente antes de continuar. Em automações ou terminais não interativos, use `php artisan lan:share --install`.
 
+Durante a instalação, o pacote cria `vite.lan.config.ts` como um wrapper do `vite.config.ts` do projeto. Esse wrapper mantém os plugins existentes e usa `VITE_DEV_ORIGIN` para anunciar ao Laravel o endereço LAN do Vite, enquanto o servidor continua escutando em `0.0.0.0`. Se o projeto já usa `vite.config.lan.ts`, esse arquivo é mantido e usado automaticamente.
+
 Depois da instalação, `lan:share` inicia o agente Windows, solicita a confirmação do UAC, configura `portproxy`/Firewall e envia heartbeats enquanto Laravel e Vite estiverem rodando. A instalação fica fora do caminho crítico das inicializações seguintes.
 
 O QR Code da URL da aplicação é exibido por padrão para abrir o projeto no celular. Para ocultá-lo em uma execução:

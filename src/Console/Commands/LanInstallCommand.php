@@ -52,8 +52,9 @@ final class LanInstallCommand extends Command
         $outcome = $this->viteLanConfigInstaller->install();
 
         match ($outcome) {
-            'created' => $this->components->info('Criado vite.lan.config.ts a partir do vite.config.ts do projeto.'),
-            'exists' => $this->components->info('vite.lan.config.ts já existe; mantido como está.'),
+            'created' => $this->components->info('Criado vite.lan.config.ts com a configuração LAN baseada no vite.config.ts do projeto.'),
+            'updated' => $this->components->info('Atualizado vite.lan.config.ts antigo para usar a configuração LAN.'),
+            'exists' => $this->components->info('A configuração Vite LAN já existe; mantida como está.'),
             default => $this->components->warn('vite.config.ts não encontrado; o compartilhamento usará a configuração padrão.'),
         };
     }

@@ -22,6 +22,17 @@ it('cai para o vite.config.ts quando o arquivo lan não existe', function () {
     rmdir($root);
 });
 
+it('reconhece o nome alternativo vite.config.lan.ts', function () {
+    $root = sys_get_temp_dir().'/lan-share-vite-'.uniqid();
+    mkdir($root, 0777, true);
+    file_put_contents($root.'/vite.config.lan.ts', '');
+
+    expect((new ViteConfigResolver)->resolve($root, 'vite.lan.config.ts'))->toBe('vite.config.lan.ts');
+
+    unlink($root.'/vite.config.lan.ts');
+    rmdir($root);
+});
+
 it('cai para o vite.config.ts quando a config é vazia', function () {
     $root = sys_get_temp_dir().'/lan-share-vite-'.uniqid();
     mkdir($root, 0777, true);

@@ -15,8 +15,18 @@ final class ViteConfigResolver
             return 'vite.config.ts';
         }
 
-        return is_file($projectRoot.DIRECTORY_SEPARATOR.$configured)
-            ? $configured
-            : 'vite.config.ts';
+        $candidates = [$configured];
+
+        if ($configured === 'vite.lan.config.ts') {
+            $candidates[] = 'vite.config.lan.ts';
+        }
+
+        foreach (array_unique($candidates) as $candidate) {
+            if (is_file($projectRoot.DIRECTORY_SEPARATOR.$candidate)) {
+                return $candidate;
+            }
+        }
+
+        return 'vite.config.ts';
     }
 }
