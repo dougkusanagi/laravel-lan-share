@@ -5,14 +5,17 @@ declare(strict_types=1);
 namespace DougKusanagi\LaravelLanShare;
 
 use DougKusanagi\LaravelLanShare\Agent\WindowsAgentClient;
+use DougKusanagi\LaravelLanShare\Console\Commands\LanInstallCommand;
+use DougKusanagi\LaravelLanShare\Console\Commands\LanShareAgentCommand;
 use DougKusanagi\LaravelLanShare\Console\Commands\LanShareCleanupCommand;
 use DougKusanagi\LaravelLanShare\Console\Commands\LanShareCommand;
-use DougKusanagi\LaravelLanShare\Console\Commands\LanShareAgentCommand;
-use DougKusanagi\LaravelLanShare\Console\Commands\LanInstallCommand;
 use DougKusanagi\LaravelLanShare\Console\Commands\LanUninstallCommand;
+use DougKusanagi\LaravelLanShare\Http\DevicePairingController;
+use DougKusanagi\LaravelLanShare\Http\PairingConnectPageController;
 use DougKusanagi\LaravelLanShare\Http\SharePageController;
 use DougKusanagi\LaravelLanShare\PowerShell\PowerShellScriptRenderer;
 use DougKusanagi\LaravelLanShare\Support\ClipboardWriter;
+use DougKusanagi\LaravelLanShare\Support\DevicePairingService;
 use DougKusanagi\LaravelLanShare\Support\LanHostResolver;
 use DougKusanagi\LaravelLanShare\Support\ManagedShareProcessMatcher;
 use DougKusanagi\LaravelLanShare\Support\PortAllocator;
@@ -47,6 +50,7 @@ final class LanShareServiceProvider extends ServiceProvider
         $this->app->singleton(ShareLinkBuilder::class);
         $this->app->singleton(WindowsAgentClient::class);
         $this->app->singleton(ClipboardWriter::class, WindowsClipboardWriter::class);
+        $this->app->singleton(DevicePairingService::class);
         $this->app->singleton(ViteConfigResolver::class);
         $this->app->singleton(ViteLanConfigInstaller::class);
     }
@@ -57,7 +61,25 @@ final class LanShareServiceProvider extends ServiceProvider
             $path = trim((string) config('lan-share.share_page.path', '__lan-share'), '/');
 
             if ($path !== '') {
-                Route::get($path, SharePageController::class)->name('lan-share.page');
+                Route::middleware('web')->group(function () use ($path): void {
+                    Route::get($path, SharePageController::class)->name('lan-share.page');
+
+                    if ((bool) config('lan-share.pairing.enabled', true)) {
+                        Route::post($path.'/pairing', [DevicePairingController::class, 'issue'])
+                            ->middleware('auth')
+                            ->name('lan-share.pairing.issue');
+                        Route::get($path.'/pairing/{pairingId}/status', [DevicePairingController::class, 'status'])
+                            ->middleware('auth')
+                            ->name('lan-share.pairing.status');
+                        Route::delete($path.'/pairing/{pairingId}', [DevicePairingController::class, 'revoke'])
+                            ->middleware('auth')
+                            ->name('lan-share.pairing.revoke');
+                        Route::get($path.'/connect', PairingConnectPageController::class)
+                            ->name('lan-share.pairing.connect');
+                        Route::post($path.'/connect', [DevicePairingController::class, 'connect'])
+                            ->name('lan-share.pairing.consume');
+                    }
+                });
             }
         }
 

@@ -38,4 +38,9 @@ final class ShareLinkBuilder
 
         return rtrim($applicationUrl, '/').'/'.$path;
     }
+
+    public function pairingConnectUrl(string $applicationUrl, string $token): string
+    {
+        return $this->sharePageUrl($applicationUrl).'/connect#token='.rawurlencode($token);
+    }
 }
