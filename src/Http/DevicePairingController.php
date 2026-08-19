@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
+use InvalidArgumentException;
 
 final class DevicePairingController
 {
@@ -27,6 +28,12 @@ final class DevicePairingController
 
         if ($user === null) {
             return response()->json(['message' => 'É necessário estar autenticado.'], 401);
+        }
+
+        try {
+            $target = $this->requestTarget($request);
+        } catch (InvalidArgumentException) {
+            return response()->json(['message' => 'A URL de destino informada não é válida.'], 422);
         }
 
         $password = (string) $request->input('password', '');
@@ -50,7 +57,7 @@ final class DevicePairingController
         RateLimiter::clear($rateLimitKey);
 
         $pairing = $this->pairings->issue($user->getAuthIdentifier());
-        $connectUrl = $this->links->pairingConnectUrl($this->applicationUrl($request), $pairing['token']);
+        $connectUrl = $this->links->pairingConnectUrl($this->applicationUrl($request), $pairing['token'], $target);
 
         return response()->json([
             'pairing_id' => $pairing['pairing_id'],
@@ -83,6 +90,12 @@ final class DevicePairingController
 
     public function connect(Request $request): JsonResponse
     {
+        try {
+            $target = $this->requestTarget($request);
+        } catch (InvalidArgumentException) {
+            return response()->json(['message' => 'A URL de destino informada não é válida.'], 422);
+        }
+
         $token = trim((string) $request->input('token', ''));
         $rateLimitKey = 'lan-share:pairing:connect:'.$request->ip();
         $maxAttempts = max(10, (int) config('lan-share.pairing.max_connect_attempts', 30));
@@ -127,7 +140,7 @@ final class DevicePairingController
         if ($currentUserId !== null) {
             return response()->json([
                 'message' => 'Dispositivo conectado com sucesso.',
-                'redirect_url' => '/',
+                'redirect_url' => $this->links->applicationUrl($this->applicationUrl($request), $target),
             ]);
         }
 
@@ -141,7 +154,7 @@ final class DevicePairingController
 
         return response()->json([
             'message' => 'Dispositivo conectado com sucesso.',
-            'redirect_url' => '/',
+            'redirect_url' => $this->links->applicationUrl($this->applicationUrl($request), $target),
         ]);
     }
 
@@ -155,5 +168,12 @@ final class DevicePairingController
     private function rateLimitKey(Request $request, mixed $userId): string
     {
         return 'lan-share:pairing:password:'.(string) $userId.':'.$request->ip();
+    }
+
+    private function requestTarget(Request $request): ?string
+    {
+        $value = $request->input('url');
+
+        return is_string($value) ? $this->links->normalizeTarget($value) : null;
     }
 }

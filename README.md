@@ -15,13 +15,24 @@ Durante a instalação, o pacote cria `vite.lan.config.ts` como um wrapper do `v
 
 Depois da instalação, `lan:share` inicia o agente Windows, solicita a confirmação do UAC, configura `portproxy`/Firewall e envia heartbeats enquanto Laravel e Vite estiverem rodando. A instalação fica fora do caminho crítico das inicializações seguintes.
 
+Para iniciar o Vite, `lan:share` prioriza Bun (`bun run dev`), depois tenta pnpm e npm como fallback.
+
 O QR Code da URL da aplicação é exibido por padrão para abrir o projeto no celular. Para ocultá-lo em uma execução:
 
 ```bash
 php artisan lan:share --no-qr
 ```
 
-O terminal também mostra a disponibilidade na rede, uma URL `wa.me` clicável e uma página local em `/__lan-share` com QR Code, copiar, compartilhamento nativo (quando disponível) e WhatsApp. Use `--no-share-links` para ocultar esses links.
+Para fazer com que os dispositivos já abram uma página específica, informe o caminho como argumento. O destino é aplicado ao QR Code do terminal, aos links de compartilhamento e à página local:
+
+```bash
+php artisan lan:share /dashboard
+php artisan lan:share '/pedidos/42?aba=historico'
+# Forma equivalente:
+php artisan lan:share --url=/dashboard
+```
+
+O terminal também mostra a disponibilidade na rede, uma URL `wa.me` clicável e uma página local em `/__lan-share` com QR Code, copiar, compartilhamento nativo (quando disponível) e WhatsApp. Quando um destino é informado, o link da página local recebe `?url=...`, por exemplo `/__lan-share?url=%2Fdashboard`. Use `--no-share-links` para ocultar esses links.
 
 Uma nova execução também encerra automaticamente processos antigos do LAN Share pertencentes ao mesmo projeto. Use `--no-replace` somente quando quiser preservar uma execução paralela.
 

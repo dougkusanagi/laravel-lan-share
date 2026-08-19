@@ -13,6 +13,7 @@ use DougKusanagi\LaravelLanShare\Support\ClipboardWriter;
 use DougKusanagi\LaravelLanShare\Support\LanHostResolver;
 use DougKusanagi\LaravelLanShare\Support\LanSharePlan;
 use DougKusanagi\LaravelLanShare\Support\PortAllocator;
+use DougKusanagi\LaravelLanShare\Support\PackageManagerResolver;
 use DougKusanagi\LaravelLanShare\Support\PreviousShareProcessKiller;
 use DougKusanagi\LaravelLanShare\Support\QrCodeRenderer;
 use DougKusanagi\LaravelLanShare\Support\ScriptFileWriter;
@@ -29,11 +30,13 @@ use Illuminate\Support\Facades\Process;
 use InvalidArgumentException;
 use Throwable;
 
-#[Signature('lan:share {--host= : Hostname or IP address used by other devices on the network} {--laravel-port= : Preferred Laravel port} {--vite-port= : Preferred Vite port} {--distro= : WSL distribution name} {--script= : Save the PowerShell setup script to this path} {--prepare-only : Generate the setup script without starting the development servers} {--replace : Force stopping the previous LAN Share processes for this project} {--no-replace : Keep previous LAN Share processes for this project} {--legacy : Use the generated PowerShell script instead of the Windows agent} {--install : Install or update the Windows agent without asking for confirmation} {--no-script : Do not print the PowerShell command} {--raw-script : Also print the complete PowerShell script} {--copy : Copy the PowerShell command to the Windows clipboard} {--json : Print the plan as JSON and exit} {--qr : Force the terminal QR code} {--no-qr : Do not print the terminal QR code} {--no-share-links : Do not print sharing links}')]
+#[Signature('lan:share {url? : Path or URL that shared devices should open} {--url= : Path or URL that shared devices should open} {--host= : Hostname or IP address used by other devices on the network} {--laravel-port= : Preferred Laravel port} {--vite-port= : Preferred Vite port} {--distro= : WSL distribution name} {--script= : Save the PowerShell setup script to this path} {--prepare-only : Generate the setup script without starting the development servers} {--replace : Force stopping the previous LAN Share processes for this project} {--no-replace : Keep previous LAN Share processes for this project} {--legacy : Use the generated PowerShell script instead of the Windows agent} {--install : Install or update the Windows agent without asking for confirmation} {--no-script : Do not print the PowerShell command} {--raw-script : Also print the complete PowerShell script} {--copy : Copy the PowerShell command to the Windows clipboard} {--json : Print the plan as JSON and exit} {--qr : Force the terminal QR code} {--no-qr : Do not print the terminal QR code} {--no-share-links : Do not print sharing links}')]
 #[Description('Prepara e inicia o compartilhamento do ambiente Laravel/Vite na rede local')]
 final class LanShareCommand extends Command
 {
     private ?AgentShareSession $agentSession = null;
+
+    private ?string $targetPath = null;
 
     public function __construct(
         private readonly LanHostResolver $hostResolver,
@@ -48,6 +51,7 @@ final class LanShareCommand extends Command
         private readonly WindowsAgentClient $agentClient,
         private readonly ShareLinkBuilder $shareLinkBuilder,
         private readonly ViteConfigResolver $viteConfigResolver,
+        private readonly PackageManagerResolver $packageManagerResolver,
     ) {
         parent::__construct();
     }
@@ -58,6 +62,7 @@ final class LanShareCommand extends Command
     public function handle(): int
     {
         try {
+            $this->targetPath = $this->resolveTargetPath();
             $this->stopPreviousShareIfRequested();
             $useAgent = $this->shouldUseAgent();
             $plan = $this->buildPlan($useAgent);
@@ -299,7 +304,7 @@ final class LanShareCommand extends Command
             return;
         }
 
-        $url = $plan->url($plan->laravelPort);
+        $url = $this->targetUrl($plan);
 
         if ($url !== null) {
             $this->newLine();
@@ -314,9 +319,10 @@ final class LanShareCommand extends Command
             return;
         }
 
-        $url = $plan->url($plan->laravelPort);
+        $applicationUrl = $plan->url($plan->laravelPort);
+        $url = $this->targetUrl($plan);
 
-        if ($url === null) {
+        if ($applicationUrl === null || $url === null) {
             return;
         }
 
@@ -330,7 +336,7 @@ final class LanShareCommand extends Command
         if ((bool) config('lan-share.share_page.enabled', true)) {
             $this->newLine();
             $this->line('Página de compartilhamento');
-            $this->line('  '.$this->shareLinkBuilder->sharePageUrl($url));
+            $this->line('  '.$this->shareLinkBuilder->sharePageUrl($applicationUrl, $this->targetPath));
         }
 
         if ((bool) config('lan-share.sharing.whatsapp', true)) {
@@ -399,6 +405,8 @@ final class LanShareCommand extends Command
             $plan->wslDistro,
         );
         $payload = $plan->toArray() + [
+            'shared_url' => $this->targetUrl($plan),
+            'share_page_url' => $this->sharePageUrl($plan),
             'powershell_script' => $script,
             'powershell_command' => $powerShellCommand,
             'copied_to_clipboard' => $copiedToClipboard,
@@ -409,6 +417,38 @@ final class LanShareCommand extends Command
         $this->line(json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
 
         return self::SUCCESS;
+    }
+
+    private function resolveTargetPath(): ?string
+    {
+        $option = $this->option('url');
+        $value = is_string($option) && trim($option) !== ''
+            ? $option
+            : $this->argument('url');
+
+        return $this->shareLinkBuilder->normalizeTarget(is_string($value) ? $value : null);
+    }
+
+    private function targetUrl(LanSharePlan $plan): ?string
+    {
+        $url = $plan->url($plan->laravelPort);
+
+        return $url === null
+            ? null
+            : $this->shareLinkBuilder->applicationUrl($url, $this->targetPath);
+    }
+
+    private function sharePageUrl(LanSharePlan $plan): ?string
+    {
+        if (! (bool) config('lan-share.share_page.enabled', true)) {
+            return null;
+        }
+
+        $applicationUrl = $plan->url($plan->laravelPort);
+
+        return $applicationUrl === null
+            ? null
+            : $this->shareLinkBuilder->sharePageUrl($applicationUrl, $this->targetPath);
     }
 
     private function serve(LanSharePlan $plan): int
@@ -625,15 +665,21 @@ final class LanShareCommand extends Command
         $viteConfig = preg_match('/^[A-Za-z0-9._\\/-]+$/', $plan->viteConfig) === 1
             ? $plan->viteConfig
             : escapeshellarg($plan->viteConfig);
+        $packageManager = $this->packageManagerResolver->resolve();
 
         $concurrently = is_executable(base_path('node_modules/.bin/concurrently'))
             ? './node_modules/.bin/concurrently'
-            : 'npx --no-install concurrently';
+            : match ($packageManager['name']) {
+                'bun' => $packageManager['command'].' x --no-install concurrently',
+                'pnpm' => $packageManager['command'].' exec concurrently',
+                default => 'npx --no-install concurrently',
+            };
 
         return sprintf(
-            '%s -c "#93c5fd,#c4b5fd" "php artisan serve --host=0.0.0.0 --port=%d" "npm run dev -- --config %s --host=0.0.0.0 --port=%d" --names=\'server,vite\' --kill-others-on-fail',
+            '%s -c "#93c5fd,#c4b5fd" "php artisan serve --host=0.0.0.0 --port=%d" "%s run dev -- --config %s --host=0.0.0.0 --port=%d" --names=\'server,vite\' --kill-others-on-fail',
             $concurrently,
             $plan->laravelPort,
+            $packageManager['command'],
             $viteConfig,
             $plan->vitePort,
         );

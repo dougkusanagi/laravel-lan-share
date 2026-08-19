@@ -19,6 +19,7 @@ use DougKusanagi\LaravelLanShare\Support\DevicePairingService;
 use DougKusanagi\LaravelLanShare\Support\LanHostResolver;
 use DougKusanagi\LaravelLanShare\Support\ManagedShareProcessMatcher;
 use DougKusanagi\LaravelLanShare\Support\PortAllocator;
+use DougKusanagi\LaravelLanShare\Support\PackageManagerResolver;
 use DougKusanagi\LaravelLanShare\Support\PortAvailabilityProbe;
 use DougKusanagi\LaravelLanShare\Support\PreviousShareProcessKiller;
 use DougKusanagi\LaravelLanShare\Support\QrCodeRenderer;
@@ -41,6 +42,7 @@ final class LanShareServiceProvider extends ServiceProvider
         $this->app->singleton(LanHostResolver::class);
         $this->app->singleton(PortAvailabilityProbe::class, WindowsPortAvailabilityProbe::class);
         $this->app->singleton(PortAllocator::class);
+        $this->app->singleton(PackageManagerResolver::class);
         $this->app->singleton(ManagedShareProcessMatcher::class);
         $this->app->singleton(PreviousShareProcessKiller::class);
         $this->app->singleton(PowerShellScriptRenderer::class);

@@ -7,6 +7,7 @@ namespace DougKusanagi\LaravelLanShare\Http;
 use DougKusanagi\LaravelLanShare\Support\ShareLinkBuilder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use InvalidArgumentException;
 
 final class SharePageController
 {
@@ -15,7 +16,9 @@ final class SharePageController
     public function __invoke(Request $request): Response
     {
         $project = (string) config('app.name', 'Laravel');
-        $url = $this->applicationUrl($request);
+        $target = $this->requestTarget($request);
+        $baseUrl = $this->applicationUrl($request);
+        $url = $this->links->applicationUrl($baseUrl, $target);
         $whatsApp = $this->links->whatsAppUrl($project, $url);
         $availability = $this->links->availabilityMessage();
         $isAuthenticated = $request->user() !== null;
@@ -29,7 +32,7 @@ final class SharePageController
             JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_THROW_ON_ERROR,
         );
 
-        $loginUrl = rtrim($url, '/').'/login';
+        $loginUrl = rtrim($baseUrl, '/').'/login';
         $pairingMarkup = $this->pairingMarkup($isAuthenticated, $pairingEnabled, $e, $loginUrl);
         $projectJson = $json($project);
 
@@ -64,7 +67,7 @@ async function copy(value){if(navigator.clipboard){await navigator.clipboard.wri
 function feedback(button,label){const original=button.getAttribute('aria-label');button.setAttribute('aria-label',label);button.title=label;setTimeout(()=>{button.setAttribute('aria-label',original);button.title=original},1600)}
 copyButton?.addEventListener('click',async()=>{await copy(appUrl);feedback(copyButton,'Endereço copiado')});
 shareButton?.addEventListener('click',async()=>{if(navigator.share){await navigator.share({title:document.title,text:'Acesse '+projectName+':',url:appUrl});return}await copy(appUrl);feedback(shareButton,'Endereço copiado')});
-{$this->pairingScript($isAuthenticated && $pairingEnabled, $json($csrfToken), $json($pagePath))}
+{$this->pairingScript($isAuthenticated && $pairingEnabled, $json($csrfToken), $json($pagePath), $json($target))}
 </script>
 </body></html>
 HTML;
@@ -97,14 +100,14 @@ HTML;
 HTML;
     }
 
-    private function pairingScript(bool $enabled, string $csrfToken, string $pagePath): string
+    private function pairingScript(bool $enabled, string $csrfToken, string $pagePath, string $target): string
     {
         if (! $enabled) {
             return '';
         }
 
         return <<<JS
-const pairingForm=document.querySelector('#pairing-form'),pairingSubmit=document.querySelector('#pairing-submit'),pairingPassword=document.querySelector('#pairing-password'),pairingError=document.querySelector('#pairing-error'),pairingLocked=document.querySelector('#pairing-locked'),pairingActive=document.querySelector('#pairing-active'),qrShell=document.querySelector('#qr-shell'),qrSurface=document.querySelector('#qr-surface'),qrOverlay=document.querySelector('#qr-overlay'),qrOverlayText=document.querySelector('#qr-overlay-text'),pairingStatus=document.querySelector('#pairing-status'),pairingHelp=document.querySelector('#pairing-help'),pairingTimer=document.querySelector('#pairing-timer'),pairingReset=document.querySelector('#pairing-reset');
+const pairingForm=document.querySelector('#pairing-form'),pairingSubmit=document.querySelector('#pairing-submit'),pairingPassword=document.querySelector('#pairing-password'),pairingError=document.querySelector('#pairing-error'),pairingLocked=document.querySelector('#pairing-locked'),pairingActive=document.querySelector('#pairing-active'),qrShell=document.querySelector('#qr-shell'),qrSurface=document.querySelector('#qr-surface'),qrOverlay=document.querySelector('#qr-overlay'),qrOverlayText=document.querySelector('#qr-overlay-text'),pairingStatus=document.querySelector('#pairing-status'),pairingHelp=document.querySelector('#pairing-help'),pairingTimer=document.querySelector('#pairing-timer'),pairingReset=document.querySelector('#pairing-reset'),pairingTarget={$target};
 let pairingId=null,pollTimer=null,countdownTimer=null;
 function showPairingError(message){pairingError.textContent=message;pairingError.classList.add('is-visible')}
 function clearPairingError(){pairingError.textContent='';pairingError.classList.remove('is-visible')}
@@ -113,7 +116,7 @@ async function resetPairing(){const previousPairingId=pairingId;stopPairingTimer
 function finishPairing(state){stopPairingTimers();qrShell.classList.add('is-blurred');qrOverlay.hidden=false;qrOverlayText.textContent=state==='consumed'?'Dispositivo conectado':'QR Code expirado';pairingStatus.textContent=state==='consumed'?'Dispositivo conectado':'QR Code expirado';pairingHelp.textContent=state==='consumed'?'O acesso foi liberado com sucesso. Este código não pode mais ser utilizado.':'Gere um novo código para tentar novamente.';pairingTimer.textContent='';pairingReset.textContent='Gerar QR Code'}
 function updateCountdown(expiresAt){const tick=()=>{const remaining=Math.max(0,expiresAt-Math.floor(Date.now()/1000));pairingTimer.textContent=remaining>0?'Expira em '+remaining+'s':'Expirando…';if(remaining<=0){finishPairing('expired')}};tick();countdownTimer=setInterval(tick,1000)}
 async function pollPairing(){if(!pairingId)return;try{const response=await fetch({$pagePath}+'/pairing/'+pairingId+'/status',{headers:{Accept:'application/json'},credentials:'same-origin'});if(!response.ok)return;const payload=await response.json();if(payload.state==='consumed'||payload.state==='expired')finishPairing(payload.state)}catch(exception){}}
-pairingForm?.addEventListener('submit',async(event)=>{event.preventDefault();clearPairingError();pairingSubmit.disabled=true;pairingSubmit.innerHTML='<span aria-hidden="true">…</span>Gerando';try{const response=await fetch({$pagePath}+'/pairing',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':{$csrfToken}},body:JSON.stringify({password:pairingPassword.value})});const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.message||'Não foi possível gerar o QR Code.');pairingId=payload.pairing_id;qrSurface.innerHTML=payload.qr_svg;qrShell.classList.remove('is-blurred');qrOverlay.hidden=true;pairingLocked.classList.add('hidden');pairingActive.classList.remove('hidden');pairingStatus.textContent='Aguardando leitura';pairingHelp.textContent='Abra a câmera do celular e aponte para este código.';pairingReset.textContent='Cancelar e gerar outro';updateCountdown(payload.expires_at);pollTimer=setInterval(pollPairing,1500)}catch(exception){showPairingError(exception.message)}finally{pairingSubmit.disabled=false;pairingSubmit.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="16" height="11" x="4" y="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Gerar QR Code'}});
+pairingForm?.addEventListener('submit',async(event)=>{event.preventDefault();clearPairingError();pairingSubmit.disabled=true;pairingSubmit.innerHTML='<span aria-hidden="true">…</span>Gerando';try{const pairingPayload={password:pairingPassword.value};if(pairingTarget!==null)pairingPayload.url=pairingTarget;const response=await fetch({$pagePath}+'/pairing',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':{$csrfToken}},body:JSON.stringify(pairingPayload)});const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.message||'Não foi possível gerar o QR Code.');pairingId=payload.pairing_id;qrSurface.innerHTML=payload.qr_svg;qrShell.classList.remove('is-blurred');qrOverlay.hidden=true;pairingLocked.classList.add('hidden');pairingActive.classList.remove('hidden');pairingStatus.textContent='Aguardando leitura';pairingHelp.textContent='Abra a câmera do celular e aponte para este código.';pairingReset.textContent='Cancelar e gerar outro';updateCountdown(payload.expires_at);pollTimer=setInterval(pollPairing,1500)}catch(exception){showPairingError(exception.message)}finally{pairingSubmit.disabled=false;pairingSubmit.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="16" height="11" x="4" y="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Gerar QR Code'}});
 pairingReset?.addEventListener('click',resetPairing);
 JS;
     }
@@ -123,5 +126,20 @@ JS;
         $configuredUrl = trim((string) config('app.url', ''));
 
         return rtrim($configuredUrl !== '' ? $configuredUrl : $request->getSchemeAndHttpHost(), '/');
+    }
+
+    private function requestTarget(Request $request): ?string
+    {
+        $value = $request->query('url');
+
+        if (! is_string($value)) {
+            return null;
+        }
+
+        try {
+            return $this->links->normalizeTarget($value);
+        } catch (InvalidArgumentException) {
+            return null;
+        }
     }
 }

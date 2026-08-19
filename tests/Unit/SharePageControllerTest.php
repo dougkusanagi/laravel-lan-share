@@ -20,6 +20,18 @@ it('renderiza a página intermediária para consumir o QR Code no celular', func
         ->assertSee('Acesso seguro');
 });
 
+it('renderiza a URL de destino recebida pelo link de compartilhamento', function () {
+    $this->get('/__lan-share?url=%2Fdashboard%3Ftab%3Dorders')
+        ->assertOk()
+        ->assertSee('http://localhost/dashboard?tab=orders')
+        ->assertSee('href="http://localhost/login"', false);
+
+    $this->actingAs(new GenericUser(['id' => 42]))
+        ->get('/__lan-share?url=%2Fdashboard%3Ftab%3Dorders')
+        ->assertOk()
+        ->assertSee('pairingTarget=');
+});
+
 it('renderiza o formulário protegido para um usuário autenticado', function () {
     $this->actingAs(new GenericUser(['id' => 42]))
         ->get('/__lan-share')
