@@ -69,8 +69,10 @@ it('renderiza o formulário protegido para um usuário autenticado', function ()
         ->assertOk()
         ->assertSee('Autorize um novo dispositivo')
         ->assertSee('pairing-form')
+        ->assertSee('Gerar link de acesso')
         ->assertSee('Link de login automático')
         ->assertSee('id="pairing-copy"', false)
         ->assertSee('id="pairing-whatsapp"', false)
+        ->assertSee('encodeURIComponent(\'Acesse \'+projectName+\':\\n\'+payload.connect_url)', false)
         ->assertSee('X-CSRF-TOKEN');
 });
