@@ -32,6 +32,7 @@ use DougKusanagi\LaravelLanShare\Support\ViteLanConfigInstaller;
 use DougKusanagi\LaravelLanShare\Support\WindowsClipboardWriter;
 use DougKusanagi\LaravelLanShare\Support\WindowsPortAvailabilityProbe;
 use Illuminate\Foundation\Http\Kernel as HttpKernel;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 
@@ -71,6 +72,19 @@ final class LanShareServiceProvider extends ServiceProvider
             if ($path !== '') {
                 Route::middleware('web')->group(function () use ($path): void {
                     Route::get($path, SharePageController::class)->name('lan-share.page');
+                    Route::get($path.'/login', function (Request $request) use ($path) {
+                        $target = $request->query('url');
+                        $query = is_string($target) && $target !== ''
+                            ? '?'.http_build_query(['url' => $target])
+                            : '';
+
+                        $request->session()->put(
+                            'url.intended',
+                            $request->getSchemeAndHttpHost().'/'.$path.$query,
+                        );
+
+                        return redirect('/login');
+                    })->name('lan-share.login');
 
                     if ((bool) config('lan-share.pairing.enabled', true)) {
                         Route::post($path.'/pairing', [DevicePairingController::class, 'issue'])

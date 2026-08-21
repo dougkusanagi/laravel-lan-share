@@ -10,7 +10,15 @@ it('renderiza a página de compartilhamento com o acesso manual e a proteção d
         ->assertOk()
         ->assertSee('Conectar dispositivo')
         ->assertSee('Endereço para compartilhar')
+        ->assertSee('Voltar pro sistema')
         ->assertSee('Entre neste computador');
+});
+
+it('guarda a página LAN Share como destino depois do login', function () {
+    $this->get('/__lan-share/login?url=%2Fdashboard')
+        ->assertRedirect('/login');
+
+    expect(session('url.intended'))->toBe('http://localhost/__lan-share?url=%2Fdashboard');
 });
 
 it('usa localhost nos controles abertos no Windows e mantém o endereço LAN para compartilhamento', function () {
@@ -19,9 +27,10 @@ it('usa localhost nos controles abertos no Windows e mantém o endereço LAN par
     $this->withServerVariables(['HTTP_HOST' => 'localhost:8080'])
         ->get('/__lan-share?url=%2Fdashboard')
         ->assertOk()
-        ->assertSee('href="http://localhost:8080/login"', false)
+        ->assertSee('href="http://localhost:8080/__lan-share/login"', false)
         ->assertSee('href="http://localhost:8080/dashboard"', false)
         ->assertSee('http://192.168.10.77:8080/dashboard')
+        ->assertSee('href="http://localhost:8080"', false)
         ->assertSee('id="share"', false)
         ->assertSee('hidden', false)
         ->assertSee("typeof navigator.share==='function'", false)
@@ -39,7 +48,7 @@ it('renderiza a URL de destino recebida pelo link de compartilhamento', function
     $this->get('/__lan-share?url=%2Fdashboard%3Ftab%3Dorders')
         ->assertOk()
         ->assertSee('http://localhost/dashboard?tab=orders')
-        ->assertSee('href="http://localhost/login"', false);
+        ->assertSee('href="http://localhost/__lan-share/login"', false);
 
     $this->actingAs(new GenericUser(['id' => 42]))
         ->get('/__lan-share?url=%2Fdashboard%3Ftab%3Dorders')
