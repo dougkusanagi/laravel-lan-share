@@ -21,7 +21,7 @@ it('inclui o destino informado nos links gerados pelo Artisan', function () {
         ->and($payload['shared_url'])
         ->toMatch('#^http://192\.168\.10\.160:\d+/dashboard\?tab=orders$#')
         ->and($payload['share_page_url'])
-        ->toMatch('#^http://192\.168\.10\.160:\d+/__lan-share\?url=%2Fdashboard%3Ftab%3Dorders$#');
+        ->toMatch('#^http://localhost:\d+/__lan-share\?url=%2Fdashboard%3Ftab%3Dorders$#');
 });
 
 it('aceita o destino também pela opção --url', function () {

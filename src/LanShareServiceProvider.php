@@ -11,6 +11,7 @@ use DougKusanagi\LaravelLanShare\Console\Commands\LanShareCleanupCommand;
 use DougKusanagi\LaravelLanShare\Console\Commands\LanShareCommand;
 use DougKusanagi\LaravelLanShare\Console\Commands\LanUninstallCommand;
 use DougKusanagi\LaravelLanShare\Http\DevicePairingController;
+use DougKusanagi\LaravelLanShare\Http\Middleware\UseLocalViteOrigin;
 use DougKusanagi\LaravelLanShare\Http\PairingConnectPageController;
 use DougKusanagi\LaravelLanShare\Http\SharePageController;
 use DougKusanagi\LaravelLanShare\PowerShell\PowerShellScriptRenderer;
@@ -18,8 +19,8 @@ use DougKusanagi\LaravelLanShare\Support\ClipboardWriter;
 use DougKusanagi\LaravelLanShare\Support\DevicePairingService;
 use DougKusanagi\LaravelLanShare\Support\LanHostResolver;
 use DougKusanagi\LaravelLanShare\Support\ManagedShareProcessMatcher;
-use DougKusanagi\LaravelLanShare\Support\PortAllocator;
 use DougKusanagi\LaravelLanShare\Support\PackageManagerResolver;
+use DougKusanagi\LaravelLanShare\Support\PortAllocator;
 use DougKusanagi\LaravelLanShare\Support\PortAvailabilityProbe;
 use DougKusanagi\LaravelLanShare\Support\PreviousShareProcessKiller;
 use DougKusanagi\LaravelLanShare\Support\QrCodeRenderer;
@@ -30,6 +31,7 @@ use DougKusanagi\LaravelLanShare\Support\ViteConfigResolver;
 use DougKusanagi\LaravelLanShare\Support\ViteLanConfigInstaller;
 use DougKusanagi\LaravelLanShare\Support\WindowsClipboardWriter;
 use DougKusanagi\LaravelLanShare\Support\WindowsPortAvailabilityProbe;
+use Illuminate\Foundation\Http\Kernel as HttpKernel;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 
@@ -59,6 +61,10 @@ final class LanShareServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        if ($this->app->environment(['local', 'development', 'testing'])) {
+            $this->app->make(HttpKernel::class)->appendMiddlewareToGroup('web', UseLocalViteOrigin::class);
+        }
+
         if ((bool) config('lan-share.share_page.enabled', true) && $this->app->environment(['local', 'development', 'testing'])) {
             $path = trim((string) config('lan-share.share_page.path', '__lan-share'), '/');
 

@@ -347,8 +347,8 @@ final class LanShareCommand extends Command
 
         if ((bool) config('lan-share.share_page.enabled', true)) {
             $this->newLine();
-            $this->line('Página de compartilhamento');
-            $this->line('  '.$this->shareLinkBuilder->sharePageUrl($applicationUrl, $this->targetPath));
+            $this->line('Página de compartilhamento (abra no Windows)');
+            $this->line('  '.$this->shareLinkBuilder->sharePageUrl($this->localApplicationUrl($plan->laravelPort), $this->targetPath));
         }
 
         if ((bool) config('lan-share.sharing.whatsapp', true)) {
@@ -456,11 +456,15 @@ final class LanShareCommand extends Command
             return null;
         }
 
-        $applicationUrl = $plan->url($plan->laravelPort);
+        return $this->shareLinkBuilder->sharePageUrl(
+            $this->localApplicationUrl($plan->laravelPort),
+            $this->targetPath,
+        );
+    }
 
-        return $applicationUrl === null
-            ? null
-            : $this->shareLinkBuilder->sharePageUrl($applicationUrl, $this->targetPath);
+    private function localApplicationUrl(int $port): string
+    {
+        return "http://localhost:{$port}";
     }
 
     private function serve(LanSharePlan $plan): int
