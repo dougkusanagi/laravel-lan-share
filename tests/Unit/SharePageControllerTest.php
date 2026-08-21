@@ -11,7 +11,15 @@ it('renderiza a página de compartilhamento com o acesso manual e a proteção d
         ->assertSee('Conectar dispositivo')
         ->assertSee('Endereço para compartilhar')
         ->assertSee('Voltar pro sistema')
+        ->assertDontSee('Abrir aplicação')
         ->assertSee('Entre neste computador');
+});
+
+it('força uma navegação completa quando o retorno vem de uma visita Inertia', function () {
+    $this->withHeaders(['X-Inertia' => 'true'])
+        ->get('/__lan-share')
+        ->assertStatus(409)
+        ->assertHeader('X-Inertia-Location', 'http://localhost/__lan-share');
 });
 
 it('guarda a página LAN Share como destino depois do login', function () {
@@ -28,13 +36,12 @@ it('usa localhost nos controles abertos no Windows e mantém o endereço LAN par
         ->get('/__lan-share?url=%2Fdashboard')
         ->assertOk()
         ->assertSee('href="http://localhost:8080/__lan-share/login"', false)
-        ->assertSee('href="http://localhost:8080/dashboard"', false)
         ->assertSee('http://192.168.10.77:8080/dashboard')
         ->assertSee('href="http://localhost:8080"', false)
+        ->assertSee('M20.5 3.5A11.8', false)
         ->assertSee('id="share"', false)
         ->assertSee('hidden', false)
-        ->assertSee("typeof navigator.share==='function'", false)
-        ->assertDontSee('M20.5 3.5A11.8');
+        ->assertSee("typeof navigator.share==='function'", false);
 });
 
 it('renderiza a página intermediária para consumir o QR Code no celular', function () {
