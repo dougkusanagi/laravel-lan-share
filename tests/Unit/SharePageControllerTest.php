@@ -9,8 +9,23 @@ it('renderiza a página de compartilhamento com o acesso manual e a proteção d
     $this->get('/__lan-share')
         ->assertOk()
         ->assertSee('Conectar dispositivo')
-        ->assertSee('Acesso manual')
+        ->assertSee('Endereço para compartilhar')
         ->assertSee('Entre neste computador');
+});
+
+it('usa localhost nos controles abertos no Windows e mantém o endereço LAN para compartilhamento', function () {
+    config()->set('app.url', 'http://192.168.10.77:8080');
+
+    $this->withServerVariables(['HTTP_HOST' => 'localhost:8080'])
+        ->get('/__lan-share?url=%2Fdashboard')
+        ->assertOk()
+        ->assertSee('href="http://localhost:8080/login"', false)
+        ->assertSee('href="http://localhost:8080/dashboard"', false)
+        ->assertSee('http://192.168.10.77:8080/dashboard')
+        ->assertSee('id="share"', false)
+        ->assertSee('hidden', false)
+        ->assertSee("typeof navigator.share==='function'", false)
+        ->assertDontSee('M20.5 3.5A11.8');
 });
 
 it('renderiza a página intermediária para consumir o QR Code no celular', function () {

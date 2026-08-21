@@ -17,9 +17,11 @@ final class SharePageController
     {
         $project = (string) config('app.name', 'Laravel');
         $target = $this->requestTarget($request);
-        $baseUrl = $this->applicationUrl($request);
-        $url = $this->links->applicationUrl($baseUrl, $target);
-        $whatsApp = $this->links->whatsAppUrl($project, $url);
+        $sharedBaseUrl = $this->applicationUrl($request);
+        $localBaseUrl = $this->localApplicationUrl($request, $sharedBaseUrl);
+        $sharedUrl = $this->links->applicationUrl($sharedBaseUrl, $target);
+        $localUrl = $this->links->applicationUrl($localBaseUrl, $target);
+        $whatsApp = $this->links->whatsAppUrl($project, $sharedUrl);
         $availability = $this->links->availabilityMessage();
         $isAuthenticated = $request->user() !== null;
         $pairingEnabled = (bool) config('lan-share.pairing.enabled', true);
@@ -32,7 +34,7 @@ final class SharePageController
             JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_THROW_ON_ERROR,
         );
 
-        $loginUrl = rtrim($baseUrl, '/').'/login';
+        $loginUrl = rtrim($localBaseUrl, '/').'/login';
         $pairingMarkup = $this->pairingMarkup($isAuthenticated, $pairingEnabled, $e, $loginUrl);
         $projectJson = $json($project);
 
@@ -57,16 +59,16 @@ final class SharePageController
 <section class="hero"><div class="hero-copy"><p class="eyebrow"><span class="eyebrow-line"></span>Compartilhamento local</p><h1>Leve seu projeto <em>com você.</em></h1><p class="hero-lede">Conecte o celular ao ambiente de desenvolvimento em segundos. Um QR Code temporário, uma sessão segura e zero endereço para digitar.</p><div class="feature-row"><span class="feature"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v5c0 4.5 2.9 8.3 7 10 4.1-1.7 7-5.5 7-10V6l-7-3Z"/><path d="m9.4 12 1.7 1.7 3.7-3.7"/></svg>Token de uso único</span><span class="feature"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Expira em instantes</span></div></div>
 <article class="share-card"><div class="card-inner"><div class="card-head"><div class="card-title"><span class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><path d="M14 14h3v3h-3zM18 18h3v3h-3zM21 14h-3"/></svg></span><div><p class="card-kicker">{$e($project)}</p><h2>Conectar dispositivo</h2></div></div><span class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v5c0 4.5 2.9 8.3 7 10 4.1-1.7 7-5.5 7-10V6l-7-3Z"/><path d="m9.4 12 1.7 1.7 3.7-3.7"/></svg>Seguro</span></div>
 {$pairingMarkup}
-<div class="manual"><div class="manual-copy"><p class="manual-kicker">Acesso manual</p><code class="manual-url" title="{$e($url)}">{$e($url)}</code></div><div class="manual-actions"><button class="icon-button" id="copy" type="button" title="Copiar endereço" aria-label="Copiar endereço"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="8" height="8" x="8" y="8" rx="1"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg></button><button class="icon-button" id="share" type="button" title="Compartilhar endereço" aria-label="Compartilhar endereço"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg></button><a class="icon-button whatsapp-button" href="{$e($whatsApp)}" title="Enviar pelo WhatsApp" aria-label="Enviar pelo WhatsApp"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.5 3.5A11.8 11.8 0 0 0 12.1 0C5.6 0 .3 5.3.3 11.8c0 2.1.6 4.1 1.6 5.9L.2 24l6.5-1.7a11.8 11.8 0 0 0 5.4 1.3h.1c6.5 0 11.8-5.3 11.8-11.8 0-3.1-1.2-6-3.5-8.3ZM12.1 21.6c-1.7 0-3.4-.5-4.9-1.3l-.4-.2-3.9 1 1-3.8-.3-.4a9.7 9.7 0 0 1-1.5-5.2c0-5.4 4.4-9.8 9.9-9.8 2.6 0 5.1 1 6.9 2.9a9.7 9.7 0 0 1 2.9 6.9c0 5.5-4.5 9.9-9.9 9.9Zm5.4-7.4c-.3-.2-1.8-.9-2.1-1-.3-.1-.5-.2-.7.2-.2.3-.8 1-.9 1.2-.2.2-.3.2-.6.1-1.6-.8-2.7-1.4-3.8-3.2-.3-.5.3-.4.8-1.4.1-.2.1-.4 0-.5 0-.2-.7-1.7-.9-2.3-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.5s1 2.9 1.1 3.1c.1.2 2 3.1 4.8 4.3 1.8.8 2.5.9 3.4.8.5-.1 1.8-.7 2-1.3.3-.6.3-1.2.2-1.3-.1-.2-.3-.3-.6-.4Z"/></svg></a></div></div><p class="availability"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a9 9 0 0 0-9 9c0 4.2 2.8 7.7 6.7 8.7L12 22l2.3-2.3A9 9 0 0 0 21 11a9 9 0 0 0-9-9Z"/><path d="M8.5 11.5h.01M12 11.5h.01M15.5 11.5h.01"/></svg>{$e($availability)}</p></div></article></section>
-<footer class="footer"><span>Uma experiência de desenvolvimento local do {$e($project)}</span><a href="{$e($url)}">Abrir aplicação <span aria-hidden="true">↗</span></a></footer>
+<div class="manual"><div class="manual-copy"><p class="manual-kicker">Endereço para compartilhar</p><code class="manual-url" title="{$e($sharedUrl)}">{$e($sharedUrl)}</code></div><div class="manual-actions"><button class="icon-button" id="copy" type="button" title="Copiar endereço" aria-label="Copiar endereço"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg></button><button class="icon-button" id="share" type="button" title="Compartilhar endereço" aria-label="Compartilhar endereço" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg></button><a class="icon-button whatsapp-button" href="{$e($whatsApp)}" title="Enviar pelo WhatsApp" aria-label="Enviar pelo WhatsApp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg></a></div></div><p class="availability"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a9 9 0 0 0-9 9c0 4.2 2.8 7.7 6.7 8.7L12 22l2.3-2.3A9 9 0 0 0 21 11a9 9 0 0 0-9-9Z"/><path d="M8.5 11.5h.01M12 11.5h.01M15.5 11.5h.01"/></svg>{$e($availability)}</p></div></article></section>
+<footer class="footer"><span>Uma experiência de desenvolvimento local do {$e($project)}</span><a href="{$e($localUrl)}">Abrir aplicação <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg></a></footer>
 </main>
 <script>
-const appUrl={$json($url)},projectName={$projectJson},pagePath={$json('/'.$pagePath)},csrfToken={$json($csrfToken)},isAuthenticated={$json($isAuthenticated)};
+const appUrl={$json($sharedUrl)},projectName={$projectJson},pagePath={$json('/'.$pagePath)},csrfToken={$json($csrfToken)},isAuthenticated={$json($isAuthenticated)};
 const copyButton=document.querySelector('#copy'),shareButton=document.querySelector('#share');
 async function copy(value){if(navigator.clipboard){await navigator.clipboard.writeText(value);return}const input=document.createElement('textarea');input.value=value;input.style.position='fixed';input.style.opacity='0';document.body.appendChild(input);input.select();document.execCommand('copy');input.remove()}
 function feedback(button,label){const original=button.getAttribute('aria-label');button.setAttribute('aria-label',label);button.title=label;setTimeout(()=>{button.setAttribute('aria-label',original);button.title=original},1600)}
 copyButton?.addEventListener('click',async()=>{await copy(appUrl);feedback(copyButton,'Endereço copiado')});
-shareButton?.addEventListener('click',async()=>{if(navigator.share){await navigator.share({title:document.title,text:'Acesse '+projectName+':',url:appUrl});return}await copy(appUrl);feedback(shareButton,'Endereço copiado')});
+if(typeof navigator.share==='function'){shareButton.hidden=false;shareButton.addEventListener('click',async()=>{try{await navigator.share({title:document.title,text:'Acesse '+projectName+':',url:appUrl})}catch(exception){if(exception.name!=='AbortError')throw exception}})}
 {$this->pairingScript($isAuthenticated && $pairingEnabled, $json($csrfToken), $json($pagePath), $json($target))}
 </script>
 </body></html>
@@ -126,6 +128,14 @@ JS;
         $configuredUrl = trim((string) config('app.url', ''));
 
         return rtrim($configuredUrl !== '' ? $configuredUrl : $request->getSchemeAndHttpHost(), '/');
+    }
+
+    private function localApplicationUrl(Request $request, string $sharedBaseUrl): string
+    {
+        $scheme = parse_url($sharedBaseUrl, PHP_URL_SCHEME) ?: $request->getScheme();
+        $port = parse_url($sharedBaseUrl, PHP_URL_PORT);
+
+        return $scheme.'://localhost'.(is_int($port) ? ":{$port}" : '');
     }
 
     private function requestTarget(Request $request): ?string

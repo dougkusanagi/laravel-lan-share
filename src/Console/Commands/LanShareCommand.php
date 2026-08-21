@@ -4,16 +4,16 @@ declare(strict_types=1);
 
 namespace DougKusanagi\LaravelLanShare\Console\Commands;
 
-use DougKusanagi\LaravelLanShare\Agent\AgentShareSession;
 use DougKusanagi\LaravelLanShare\Agent\AgentInstallationRequiredException;
+use DougKusanagi\LaravelLanShare\Agent\AgentShareSession;
 use DougKusanagi\LaravelLanShare\Agent\WindowsAgentClient;
 use DougKusanagi\LaravelLanShare\PowerShell\PowerShellCommandRenderer;
 use DougKusanagi\LaravelLanShare\PowerShell\PowerShellScriptRenderer;
 use DougKusanagi\LaravelLanShare\Support\ClipboardWriter;
 use DougKusanagi\LaravelLanShare\Support\LanHostResolver;
 use DougKusanagi\LaravelLanShare\Support\LanSharePlan;
-use DougKusanagi\LaravelLanShare\Support\PortAllocator;
 use DougKusanagi\LaravelLanShare\Support\PackageManagerResolver;
+use DougKusanagi\LaravelLanShare\Support\PortAllocator;
 use DougKusanagi\LaravelLanShare\Support\PreviousShareProcessKiller;
 use DougKusanagi\LaravelLanShare\Support\QrCodeRenderer;
 use DougKusanagi\LaravelLanShare\Support\ScriptFileWriter;
@@ -240,7 +240,13 @@ final class LanShareCommand extends Command
         $this->line("Laravel no WSL: http://0.0.0.0:{$plan->laravelPort}");
         $this->line("Vite no WSL:    http://0.0.0.0:{$plan->vitePort}");
 
-        if ($plan->host !== null) {
+        if ($plan->host !== null && $this->usesMirroredNetworking()) {
+            $this->components->warn('Rede espelhada do WSL detectada: não foi criado portproxy.');
+            $this->line("No Windows, abra Laravel: http://localhost:{$plan->laravelPort}");
+            $this->line("No Windows, abra Vite:    http://localhost:{$plan->vitePort}");
+            $this->line("Em outros dispositivos, Laravel: {$plan->url($plan->laravelPort)}");
+            $this->line("Em outros dispositivos, Vite:    {$plan->url($plan->vitePort)}");
+        } elseif ($plan->host !== null) {
             $this->line("URL Laravel:    {$plan->url($plan->laravelPort)}");
             $this->line("URL Vite:       {$plan->url($plan->vitePort)}");
         } elseif ($this->agentSession === null) {
@@ -249,7 +255,8 @@ final class LanShareCommand extends Command
 
         $this->newLine();
         if ($this->agentSession !== null) {
-            $this->components->info('Agente Windows ativo: portproxy e Firewall serão removidos automaticamente.');
+            $agentResources = $this->usesMirroredNetworking() ? 'Firewall' : 'portproxy e Firewall';
+            $this->components->info("Agente Windows ativo: {$agentResources} serão removidos automaticamente.");
             $this->line("Sessão do agente: {$this->agentSession->sessionId}");
         } else {
             $this->line('Abra o PowerShell como Administrador, cole e execute o script abaixo:');
@@ -294,6 +301,11 @@ final class LanShareCommand extends Command
         }
 
         return (bool) $this->option('qr') || (bool) config('lan-share.qr.enabled', true);
+    }
+
+    private function usesMirroredNetworking(): bool
+    {
+        return $this->agentSession !== null && $this->agentSession->lanIp === $this->agentSession->wslIp;
     }
 
     private function displayQrCode(LanSharePlan $plan): void

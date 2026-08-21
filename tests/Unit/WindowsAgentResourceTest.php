@@ -9,6 +9,8 @@ it('inclui o agente Windows persistente e o cliente sem exigir copiar comandos',
         ->toContain("'heartbeat'")
         ->toContain('leaseSeconds')
         ->toContain('Get-PortProxyMappings')
+        ->toContain('$isMirroredNetwork = $wslIp -eq $lanIp')
+        ->toContain('if (-not $isMirroredNetwork)')
         ->toContain('Save-State')
         ->toContain("\$listenAddress = '0.0.0.0'")
         ->toContain('"listenaddress=$listenAddress", "listenport=$port"')

@@ -427,6 +427,7 @@ function Invoke-Prepare {
 
     $wslIp = Get-WslIp -Distro $wslDistro
     $lanIp = if ([string]::IsNullOrWhiteSpace($lanHost)) { Get-LanIp } else { $lanHost }
+    $isMirroredNetwork = $wslIp -eq $lanIp
     $listenAddress = '0.0.0.0'
     Assert-IPv4 -Address $wslIp -Name 'WSL'
     Assert-IPv4 -Address $lanIp -Name 'LAN'
@@ -456,18 +457,20 @@ function Invoke-Prepare {
     $safeStateKey = Get-SafeName -Value $stateKey
 
     try {
-        foreach ($port in @($laravelPort, $vitePort)) {
+        if (-not $isMirroredNetwork) {
+            foreach ($port in @($laravelPort, $vitePort)) {
             Invoke-Netsh -Arguments @(
                 'interface', 'portproxy', 'add', 'v4tov4',
                 "listenaddress=$listenAddress", "listenport=$port",
                 "connectaddress=$wslIp", "connectport=$port"
             )
 
-            $createdMappings += [ordered] @{
+                $createdMappings += [ordered] @{
                 listenAddress = $listenAddress
                 listenPort = $port
                 connectAddress = $wslIp
                 connectPort = $port
+                }
             }
         }
 
@@ -496,6 +499,7 @@ function Invoke-Prepare {
             stateKey = $stateKey
             lanIp = $lanIp
             wslIp = $wslIp
+            isMirroredNetwork = $isMirroredNetwork
             laravelPort = $laravelPort
             vitePort = $vitePort
             mappings = @($createdMappings)
@@ -514,6 +518,7 @@ function Invoke-Prepare {
             vitePort = $vitePort
             lanIp = $lanIp
             wslIp = $wslIp
+            isMirroredNetwork = $isMirroredNetwork
         }
     } catch {
         foreach ($mapping in @($createdMappings)) {

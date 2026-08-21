@@ -30,6 +30,10 @@ it('renderiza o setup PowerShell com regras idempotentes e validações', functi
         ->toContain("Assert-PortAvailable -Port \$LaravelPort -ServiceName 'Laravel' -ListenAddress \$listenAddress")
         ->toContain('"listenaddress=$listenAddress", "listenport=$LaravelPort"')
         ->toContain("\$listenAddress = '0.0.0.0'")
+        ->toContain('$isMirroredNetwork = $wslIp -eq $lanIp')
+        ->toContain('if (-not $isMirroredNetwork)')
+        ->toContain('No Windows, abra Laravel: $windowsLaravelUrl')
+        ->toContain('Em outros dispositivos, Laravel: $laravelUrl')
         ->toContain("\$RulePrefix = 'DougKusanagi-LaravelLanShare'");
 });
 

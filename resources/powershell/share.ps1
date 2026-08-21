@@ -192,12 +192,14 @@ try {
 
     $wslIp = Get-WslIp
     $lanIp = Get-LanIp
+    $isMirroredNetwork = $wslIp -eq $lanIp
     $listenAddress = '0.0.0.0'
     Remove-ManagedResources -WslIp $wslIp
 
     Assert-PortAvailable -Port $LaravelPort -ServiceName 'Laravel' -ListenAddress $listenAddress
     Assert-PortAvailable -Port $VitePort -ServiceName 'Vite' -ListenAddress $listenAddress
 
+    if (-not $isMirroredNetwork) {
     Invoke-Netsh -Arguments @(
         'interface', 'portproxy', 'add', 'v4tov4',
         "listenaddress=$listenAddress", "listenport=$LaravelPort",
@@ -221,6 +223,7 @@ try {
         connectAddress = $wslIp
         connectPort = $VitePort
     }
+    }
 
     $laravelRuleName = "$RulePrefix-Laravel"
     $viteRuleName = "$RulePrefix-Vite"
@@ -239,6 +242,7 @@ try {
         stateKey = $StateKey
         lanIp = $lanIp
         wslIp = $wslIp
+        isMirroredNetwork = $isMirroredNetwork
         mappings = @($createdMappings)
         firewallRuleNames = @($createdFirewallRuleNames)
     }
@@ -248,15 +252,25 @@ try {
 
     $laravelUrl = "http://{0}:{1}" -f $lanIp, $LaravelPort
     $viteUrl = "http://{0}:{1}" -f $lanIp, $VitePort
-    $laravelTcpOk = Test-NetConnection -ComputerName $lanIp -Port $LaravelPort -InformationLevel Quiet
-    $viteTcpOk = Test-NetConnection -ComputerName $lanIp -Port $VitePort -InformationLevel Quiet
-    $laravelHttpOk = Test-HttpEndpoint -Uri "$laravelUrl/up"
-    $viteHttpOk = Test-HttpEndpoint -Uri "$viteUrl/@vite/client"
+    $windowsLaravelUrl = if ($isMirroredNetwork) { "http://localhost:$LaravelPort" } else { $laravelUrl }
+    $windowsViteUrl = if ($isMirroredNetwork) { "http://localhost:$VitePort" } else { $viteUrl }
+    $laravelTcpOk = Test-NetConnection -ComputerName (if ($isMirroredNetwork) { 'localhost' } else { $lanIp }) -Port $LaravelPort -InformationLevel Quiet
+    $viteTcpOk = Test-NetConnection -ComputerName (if ($isMirroredNetwork) { 'localhost' } else { $lanIp }) -Port $VitePort -InformationLevel Quiet
+    $laravelHttpOk = Test-HttpEndpoint -Uri "$windowsLaravelUrl/up"
+    $viteHttpOk = Test-HttpEndpoint -Uri "$windowsViteUrl/@vite/client"
 
     Write-Host ''
     Write-Host 'Compartilhamento LAN configurado.' -ForegroundColor Green
-    Write-Host "Laravel: $laravelUrl"
-    Write-Host "Vite:    $viteUrl"
+    if ($isMirroredNetwork) {
+        Write-Host 'Rede espelhada do WSL detectada.' -ForegroundColor Yellow
+        Write-Host "No Windows, abra Laravel: $windowsLaravelUrl"
+        Write-Host "No Windows, abra Vite:    $windowsViteUrl"
+        Write-Host "Em outros dispositivos, Laravel: $laravelUrl"
+        Write-Host "Em outros dispositivos, Vite:    $viteUrl"
+    } else {
+        Write-Host "Laravel: $laravelUrl"
+        Write-Host "Vite:    $viteUrl"
+    }
     Write-Host "Estado:  $StatePath"
     Write-Host ''
     Write-Host "TCP Laravel: $(if ($laravelTcpOk) { 'OK' } else { 'FALHOU' })"
