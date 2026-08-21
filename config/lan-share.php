@@ -33,7 +33,7 @@ return [
 
     'pairing' => [
         'enabled' => (bool) filter_var(env('LAN_SHARE_PAIRING', true), FILTER_VALIDATE_BOOLEAN),
-        'token_ttl' => max(30, (int) env('LAN_SHARE_PAIRING_TTL', 90)),
+        'token_ttl' => max(0, (int) env('LAN_SHARE_PAIRING_TTL', 180)),
         'status_ttl' => max(60, (int) env('LAN_SHARE_PAIRING_STATUS_TTL', 300)),
         'max_password_attempts' => max(1, (int) env('LAN_SHARE_PAIRING_MAX_ATTEMPTS', 5)),
         'rate_limit_seconds' => max(30, (int) env('LAN_SHARE_PAIRING_RATE_LIMIT_SECONDS', 60)),

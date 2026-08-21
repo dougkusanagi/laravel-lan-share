@@ -10,7 +10,7 @@ it('renderiza a página de compartilhamento com o acesso manual e a proteção d
         ->assertOk()
         ->assertSee('Conectar dispositivo')
         ->assertSee('Endereço para compartilhar')
-        ->assertSee('Voltar pro sistema')
+        ->assertSeeInOrder(['Voltar pro sistema', 'Compartilhamento local'])
         ->assertDontSee('Abrir aplicação')
         ->assertSee('Entre neste computador');
 });
@@ -69,5 +69,8 @@ it('renderiza o formulário protegido para um usuário autenticado', function ()
         ->assertOk()
         ->assertSee('Autorize um novo dispositivo')
         ->assertSee('pairing-form')
+        ->assertSee('Link de login automático')
+        ->assertSee('id="pairing-copy"', false)
+        ->assertSee('id="pairing-whatsapp"', false)
         ->assertSee('X-CSRF-TOKEN');
 });

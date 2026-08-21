@@ -18,7 +18,7 @@ abstract class TestCase extends OrchestraTestCase
     {
         $app['config']->set('app.key', 'base64:'.base64_encode(str_repeat('k', 32)));
         $app['config']->set('cache.default', 'array');
-        $app['config']->set('lan-share.pairing.token_ttl', 90);
+        $app['config']->set('lan-share.pairing.token_ttl', 180);
         $app['config']->set('lan-share.pairing.status_ttl', 300);
     }
 }

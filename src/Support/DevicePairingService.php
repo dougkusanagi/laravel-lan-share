@@ -21,20 +21,35 @@ final class DevicePairingService
         $token = Str::random(64);
         $tokenHash = hash('sha256', $token);
         $pairingId = (string) Str::uuid();
-        $ttl = max(30, (int) config('lan-share.pairing.token_ttl', 90));
-        $expiresAt = time() + $ttl;
-
-        Cache::put(self::tokenKey($tokenHash), [
+        $ttl = max(0, (int) config('lan-share.pairing.token_ttl', 180));
+        $expiresAt = $ttl > 0 ? time() + $ttl : 0;
+        $tokenPayload = [
             'user_id' => (string) $userId,
             'pairing_id' => $pairingId,
-        ], $ttl);
+        ];
 
-        Cache::put(self::statusKey($pairingId), [
+        if ($ttl === 0) {
+            Cache::forever(self::tokenKey($tokenHash), $tokenPayload);
+        } else {
+            Cache::put(self::tokenKey($tokenHash), $tokenPayload, $ttl);
+        }
+
+        $statusPayload = [
             'state' => 'pending',
             'expires_at' => $expiresAt,
             'user_id' => (string) $userId,
             'token_hash' => $tokenHash,
-        ], max($ttl, (int) config('lan-share.pairing.status_ttl', 300)));
+        ];
+
+        if ($ttl === 0) {
+            Cache::forever(self::statusKey($pairingId), $statusPayload);
+        } else {
+            Cache::put(
+                self::statusKey($pairingId),
+                $statusPayload,
+                max($ttl, (int) config('lan-share.pairing.status_ttl', 300)),
+            );
+        }
 
         return [
             'pairing_id' => $pairingId,
@@ -85,7 +100,10 @@ final class DevicePairingService
             return ['state' => 'expired'];
         }
 
-        if ($status['state'] === 'pending' && isset($status['expires_at']) && $status['expires_at'] <= time()) {
+        if ($status['state'] === 'pending'
+            && isset($status['expires_at'])
+            && $status['expires_at'] > 0
+            && $status['expires_at'] <= time()) {
             Cache::forget(self::statusKey($pairingId));
 
             return ['state' => 'expired'];

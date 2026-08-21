@@ -18,10 +18,26 @@ it('inclui o destino informado nos links gerados pelo Artisan', function () {
     $payload = json_decode($output->fetch(), true, flags: JSON_THROW_ON_ERROR);
 
     expect($exitCode)->toBe(0)
+        ->and($payload['pairing_ttl'])->toBe(180)
         ->and($payload['shared_url'])
         ->toMatch('#^http://192\.168\.10\.160:\d+/dashboard\?tab=orders$#')
         ->and($payload['share_page_url'])
         ->toMatch('#^http://localhost:\d+/__lan-share\?url=%2Fdashboard%3Ftab%3Dorders$#');
+});
+
+it('aceita desabilitar a expiração do QR Code pela opção do comando', function () {
+    $output = new BufferedOutput;
+    $exitCode = $this->app->make(Kernel::class)->call('lan:share', [
+        '--host' => '192.168.10.162',
+        '--laravel-port' => '18084',
+        '--vite-port' => '18085',
+        '--pairing-ttl' => '0',
+        '--json' => true,
+    ], $output);
+    $payload = json_decode($output->fetch(), true, flags: JSON_THROW_ON_ERROR);
+
+    expect($exitCode)->toBe(0)
+        ->and($payload['pairing_ttl'])->toBe(0);
 });
 
 it('aceita o destino também pela opção --url', function () {

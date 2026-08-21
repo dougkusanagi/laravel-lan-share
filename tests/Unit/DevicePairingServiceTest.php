@@ -43,3 +43,15 @@ it('não permite que outro usuário revogue o pareamento', function () {
 
     expect($service->consume($pairing['token']))->not->toBeNull();
 });
+
+it('mantém o token válido sem expiração quando o TTL é zero', function () {
+    config()->set('lan-share.pairing.token_ttl', 0);
+
+    $service = app(DevicePairingService::class);
+    $pairing = $service->issue('42');
+
+    expect($pairing['expires_at'])->toBe(0)
+        ->and($service->status($pairing['pairing_id']))->toMatchArray(['state' => 'pending'])
+        ->and($service->consume($pairing['token']))->not->toBeNull()
+        ->and($service->consume($pairing['token']))->toBeNull();
+});

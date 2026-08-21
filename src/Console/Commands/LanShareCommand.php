@@ -30,7 +30,7 @@ use Illuminate\Support\Facades\Process;
 use InvalidArgumentException;
 use Throwable;
 
-#[Signature('lan:share {url? : Path or URL that shared devices should open} {--url= : Path or URL that shared devices should open} {--host= : Hostname or IP address used by other devices on the network} {--laravel-port= : Preferred Laravel port} {--vite-port= : Preferred Vite port} {--distro= : WSL distribution name} {--script= : Save the PowerShell setup script to this path} {--prepare-only : Generate the setup script without starting the development servers} {--replace : Force stopping the previous LAN Share processes for this project} {--no-replace : Keep previous LAN Share processes for this project} {--legacy : Use the generated PowerShell script instead of the Windows agent} {--install : Install or update the Windows agent without asking for confirmation} {--no-script : Do not print the PowerShell command} {--raw-script : Also print the complete PowerShell script} {--copy : Copy the PowerShell command to the Windows clipboard} {--json : Print the plan as JSON and exit} {--qr : Force the terminal QR code} {--no-qr : Do not print the terminal QR code} {--no-share-links : Do not print sharing links}')]
+#[Signature('lan:share {url? : Path or URL that shared devices should open} {--url= : Path or URL that shared devices should open} {--host= : Hostname or IP address used by other devices on the network} {--laravel-port= : Preferred Laravel port} {--vite-port= : Preferred Vite port} {--pairing-ttl= : QR Code login validity in seconds; use 0 for no expiration} {--distro= : WSL distribution name} {--script= : Save the PowerShell setup script to this path} {--prepare-only : Generate the setup script without starting the development servers} {--replace : Force stopping the previous LAN Share processes for this project} {--no-replace : Keep previous LAN Share processes for this project} {--legacy : Use the generated PowerShell script instead of the Windows agent} {--install : Install or update the Windows agent without asking for confirmation} {--no-script : Do not print the PowerShell command} {--raw-script : Also print the complete PowerShell script} {--copy : Copy the PowerShell command to the Windows clipboard} {--json : Print the plan as JSON and exit} {--qr : Force the terminal QR code} {--no-qr : Do not print the terminal QR code} {--no-share-links : Do not print sharing links}')]
 #[Description('Prepara e inicia o compartilhamento do ambiente Laravel/Vite na rede local')]
 final class LanShareCommand extends Command
 {
@@ -63,6 +63,7 @@ final class LanShareCommand extends Command
     {
         try {
             $this->targetPath = $this->resolveTargetPath();
+            $this->pairingTtl();
             $this->stopPreviousShareIfRequested();
             $useAgent = $this->shouldUseAgent();
             $plan = $this->buildPlan($useAgent);
@@ -419,6 +420,7 @@ final class LanShareCommand extends Command
         $payload = $plan->toArray() + [
             'shared_url' => $this->targetUrl($plan),
             'share_page_url' => $this->sharePageUrl($plan),
+            'pairing_ttl' => $this->pairingTtl(),
             'powershell_script' => $script,
             'powershell_command' => $powerShellCommand,
             'copied_to_clipboard' => $copiedToClipboard,
@@ -706,18 +708,46 @@ final class LanShareCommand extends Command
      */
     private function developmentEnvironment(LanSharePlan $plan): array
     {
-        if ($plan->host === null) {
-            return [];
+        $environment = [];
+
+        if ($plan->host !== null) {
+            $host = str_contains($plan->host, ':') && ! str_starts_with($plan->host, '[')
+                ? "[{$plan->host}]"
+                : $plan->host;
+
+            $environment['APP_URL'] = "http://{$host}:{$plan->laravelPort}";
+            $environment['VITE_DEV_ORIGIN'] = "http://{$host}:{$plan->vitePort}";
         }
 
-        $host = str_contains($plan->host, ':') && ! str_starts_with($plan->host, '[')
-            ? "[{$plan->host}]"
-            : $plan->host;
+        $pairingTtl = $this->pairingTtlOption();
 
-        return [
-            'APP_URL' => "http://{$host}:{$plan->laravelPort}",
-            'VITE_DEV_ORIGIN' => "http://{$host}:{$plan->vitePort}",
-        ];
+        if ($pairingTtl !== null) {
+            $environment['LAN_SHARE_PAIRING_TTL'] = (string) $pairingTtl;
+        }
+
+        return $environment;
+    }
+
+    private function pairingTtl(): int
+    {
+        return $this->pairingTtlOption() ?? max(0, (int) config('lan-share.pairing.token_ttl', 180));
+    }
+
+    private function pairingTtlOption(): ?int
+    {
+        $value = $this->option('pairing-ttl');
+
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $ttl = filter_var($value, FILTER_VALIDATE_INT);
+
+        if (! is_int($ttl) || $ttl < 0) {
+            throw new InvalidArgumentException('O tempo de expiração do pareamento deve ser um número inteiro maior ou igual a zero.');
+        }
+
+        return $ttl;
     }
 
     private function stopProcess(InvokedProcess $process, ?int $processId = null): void
