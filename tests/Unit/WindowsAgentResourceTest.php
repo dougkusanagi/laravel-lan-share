@@ -10,6 +10,8 @@ it('inclui o agente Windows persistente e o cliente sem exigir copiar comandos',
         ->toContain('leaseSeconds')
         ->toContain('Get-PortProxyMappings')
         ->toContain('Save-State')
+        ->toContain("\$listenAddress = '0.0.0.0'")
+        ->toContain('"listenaddress=$listenAddress", "listenport=$port"')
         ->toContain('System.Threading.Mutex')
         ->toContain('PipeAccessRights]::CreateNewInstance');
 

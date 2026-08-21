@@ -192,18 +192,19 @@ try {
 
     $wslIp = Get-WslIp
     $lanIp = Get-LanIp
+    $listenAddress = '0.0.0.0'
     Remove-ManagedResources -WslIp $wslIp
 
-    Assert-PortAvailable -Port $LaravelPort -ServiceName 'Laravel' -ListenAddress $lanIp
-    Assert-PortAvailable -Port $VitePort -ServiceName 'Vite' -ListenAddress $lanIp
+    Assert-PortAvailable -Port $LaravelPort -ServiceName 'Laravel' -ListenAddress $listenAddress
+    Assert-PortAvailable -Port $VitePort -ServiceName 'Vite' -ListenAddress $listenAddress
 
     Invoke-Netsh -Arguments @(
         'interface', 'portproxy', 'add', 'v4tov4',
-        "listenaddress=$lanIp", "listenport=$LaravelPort",
+        "listenaddress=$listenAddress", "listenport=$LaravelPort",
         "connectaddress=$wslIp", "connectport=$LaravelPort"
     )
     $createdMappings += [ordered] @{
-        listenAddress = $lanIp
+        listenAddress = $listenAddress
         listenPort = $LaravelPort
         connectAddress = $wslIp
         connectPort = $LaravelPort
@@ -211,11 +212,11 @@ try {
 
     Invoke-Netsh -Arguments @(
         'interface', 'portproxy', 'add', 'v4tov4',
-        "listenaddress=$lanIp", "listenport=$VitePort",
+        "listenaddress=$listenAddress", "listenport=$VitePort",
         "connectaddress=$wslIp", "connectport=$VitePort"
     )
     $createdMappings += [ordered] @{
-        listenAddress = $lanIp
+        listenAddress = $listenAddress
         listenPort = $VitePort
         connectAddress = $wslIp
         connectPort = $VitePort

@@ -15,6 +15,8 @@ Durante a instalação, o pacote cria `vite.lan.config.ts` como um wrapper do `v
 
 Depois da instalação, `lan:share` inicia o agente Windows, solicita a confirmação do UAC, configura `portproxy`/Firewall e envia heartbeats enquanto Laravel e Vite estiverem rodando. A instalação fica fora do caminho crítico das inicializações seguintes.
 
+O `portproxy` escuta em todas as interfaces IPv4 do Windows. Assim, a mesma sessão fica acessível pelo IP LAN em outros dispositivos e também pelo próprio Windows, usando o IP LAN ou `localhost`.
+
 Para iniciar o Vite, `lan:share` prioriza Bun (`bun run dev`), depois tenta pnpm e npm como fallback.
 
 O QR Code da URL da aplicação é exibido por padrão para abrir o projeto no celular. Para ocultá-lo em uma execução:

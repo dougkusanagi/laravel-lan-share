@@ -27,7 +27,9 @@ it('renderiza o setup PowerShell com regras idempotentes e validações', functi
         ->toContain('Get-PortProxyMappings')
         ->toContain("\$_.LocalAddress -notlike '127.*'")
         ->toContain("\$_.LocalAddress -ne '::1'")
-        ->toContain("Assert-PortAvailable -Port \$LaravelPort -ServiceName 'Laravel' -ListenAddress \$lanIp")
+        ->toContain("Assert-PortAvailable -Port \$LaravelPort -ServiceName 'Laravel' -ListenAddress \$listenAddress")
+        ->toContain('"listenaddress=$listenAddress", "listenport=$LaravelPort"')
+        ->toContain("\$listenAddress = '0.0.0.0'")
         ->toContain("\$RulePrefix = 'DougKusanagi-LaravelLanShare'");
 });
 

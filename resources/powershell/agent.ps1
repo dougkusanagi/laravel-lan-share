@@ -427,6 +427,7 @@ function Invoke-Prepare {
 
     $wslIp = Get-WslIp -Distro $wslDistro
     $lanIp = if ([string]::IsNullOrWhiteSpace($lanHost)) { Get-LanIp } else { $lanHost }
+    $listenAddress = '0.0.0.0'
     Assert-IPv4 -Address $wslIp -Name 'WSL'
     Assert-IPv4 -Address $lanIp -Name 'LAN'
 
@@ -458,12 +459,12 @@ function Invoke-Prepare {
         foreach ($port in @($laravelPort, $vitePort)) {
             Invoke-Netsh -Arguments @(
                 'interface', 'portproxy', 'add', 'v4tov4',
-                "listenaddress=$lanIp", "listenport=$port",
+                "listenaddress=$listenAddress", "listenport=$port",
                 "connectaddress=$wslIp", "connectport=$port"
             )
 
             $createdMappings += [ordered] @{
-                listenAddress = $lanIp
+                listenAddress = $listenAddress
                 listenPort = $port
                 connectAddress = $wslIp
                 connectPort = $port
